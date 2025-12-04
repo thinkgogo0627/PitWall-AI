@@ -1,3 +1,7 @@
+## 소프트 데이터 소스에서 크롤링하여 Dataframe 형태로 만든 데이터 전원 적재
+## 데이터프레임 -> 벡터 임베딩 수행
+
+
 import chromadb
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex, StorageContext, Document
@@ -68,6 +72,6 @@ class F1VectorStore:
                 storage_context=self.storage_context,
                 show_progress=True
             )
-            print(f"✅ {new_count}건 신규 저장 완료!")
+            print(f" {new_count}건 신규 저장 완료!")
         else:
             print("모든 데이터가 최신입니다. (저장할 것 없음)")
