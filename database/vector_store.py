@@ -12,6 +12,7 @@ import os
 
 
 # 전역 설정 (한 번만 로드)
+## 임베딩 모델 지정
 Settings.embed_model = HuggingFaceEmbedding(
     model_name="BAAI/bge-m3", # 한/영 통합 모델
     device="cuda" # 없으면 cpu
@@ -66,7 +67,7 @@ class F1VectorStore:
             new_count += 1
 
         if documents:
-            # 인덱싱 및 저장
+            # 인덱싱 및 저장: 임베딩 -> 인덱싱 -> 저장
             VectorStoreIndex.from_documents(
                 documents, 
                 storage_context=self.storage_context,

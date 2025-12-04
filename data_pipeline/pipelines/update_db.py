@@ -52,6 +52,6 @@ def update_race_data(year, circuit, session='R'):
 
 if __name__ == "__main__":
     # for test
-    update_race_data(2024, 'Singapore' , 'R')
+    update_race_data(2025, 'Sao Paulo' , 'R')
 
 
