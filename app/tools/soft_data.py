@@ -78,5 +78,5 @@ def search_f1_news(query: str):
 # --- 테스트 실행 (파일 직접 실행 시) ---
 if __name__ == "__main__":
     # 테스트 질문
-    test_query = "메르세데스의 캐나다 그랑프리 레이스 전략"
+    test_query = "키미 안토넬리의 올해 레이스 실적"
     print(search_f1_news(test_query))

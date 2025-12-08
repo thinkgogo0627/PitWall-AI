@@ -210,3 +210,6 @@ tests/cache/
 *.ff1pkl
 tests/cache/
 *.sqlite
+
+# env
+.env

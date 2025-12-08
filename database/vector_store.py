@@ -9,6 +9,8 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core import Settings
 import pandas as pd
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 
 # 전역 설정 (한 번만 로드)
