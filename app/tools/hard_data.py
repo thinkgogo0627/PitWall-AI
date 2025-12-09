@@ -34,8 +34,7 @@ Settings.embed_model = HuggingFaceEmbedding(
     device="cuda" # GPU 없으면 "cpu"
 )
 
-Settings.llm = Gemini(model="models/gemini-flash-latest", api_key=api_key)
-
+Settings.llm = Gemini(model="models/gemini-2.5-flash", api_key=api_key)
 
 
 # 프로젝트 루트 경로 추가
@@ -60,10 +59,19 @@ text_to_sql_prompt_instruction = """
 당신은 F1 데이터 분석 전문가입니다. 사용자의 자연어 질문을 실행 가능한 SQL 쿼리로 변환하고, 그 결과를 분석해주세요.
 데이터베이스는 SQLite를 사용합니다.
 
+[제약 사항 - 매우 중요!]
+1. **절대로 마크다운(```sql) 포맷을 사용하지 마세요.** 오직 SQL 쿼리 문장만 출력하세요.
+2. 쿼리 끝에 세미콜론(;)을 붙이세요.
+3. 존재하지 않는 컬럼을 지어내지 마세요.
+4. **IsAccurate 컬럼은 Boolean 타입입니다. (1=True, 0=False)**
+   - 올바른 예: WHERE IsAccurate = 1
+   - 틀린 예: WHERE IsAccurate = 'True'
+
+   
 [테이블 정보]
-- race_results: 경기 최종 순위, 포인트, 그리드 위치 등
-- lap_times: 모든 드라이버의 모든 랩 타임, 타이어 정보 (초 단위: LapTime_Sec)
-- weather_data: 트랙 온도, 기온, 습도 등
+- race_results: 경기 순위(Position), 그리드(GridPosition), 포인트(Points)
+- lap_times: 랩타임(LapTime_Sec), 타이어(Compound), 타이어수명(TyreLife)
+- weather_data: 기온(AirTemp), 트랙온도(TrackTemp)
 
 [쿼리 작성 가이드]
 1. 중반 페이스 분석 시: 전체 랩의 15% ~ 85% 구간만 필터링하여 평균을 구하세요.
@@ -75,7 +83,7 @@ Q: "라스베가스에서 타이어별 평균 랩타임 보여줘"
 SQL: 
 SELECT Driver, Compound, COUNT(*) as Laps, ROUND(AVG(LapTime_Sec), 3) as Avg_Pace 
 FROM lap_times 
-WHERE RaceID LIKE '%Las_Vegas%' AND IsAccurate = 'True' 
+WHERE RaceID LIKE '%Las_Vegas%' AND IsAccurate = 1
 GROUP BY Driver, Compound ORDER BY Driver;
 
 [예시 2: 순위 상승폭]
@@ -85,17 +93,40 @@ SELECT Driver, (GridPosition - Position) as Positions_Gained
 FROM race_results 
 WHERE RaceID LIKE '%Las_Vegas%' AND Position IS NOT NULL 
 ORDER BY Positions_Gained DESC LIMIT 5;
+
+
+[예시 3: 타이어 컴파운드별 랩타임 비교]
+Q: "랩의 중반 페이스에서, 각 타이어 컴파운드별 드라이버들의 랩타임을 비교해줘"
+SQL: 
+SELECT Driver, Compound, COUNT(*) as Laps_Run,ROUND(AVG(LapTime_Sec), 3) as Avg_Pace,ROUND(MIN(LapTime_Sec), 3) as Best_Lap
+FROM lap_times
+WHERE RaceID LIKE '2025%'
+  AND IsAccurate = 1
+  AND LapNumber BETWEEN 
+      (SELECT MAX(LapNumber) * 0.15 FROM lap_times WHERE RaceID LIKE '2025%') 
+      AND 
+      (SELECT MAX(LapNumber) * 0.85 FROM lap_times WHERE RaceID LIKE '2025%')
+GROUP BY Driver, Compound
+ORDER BY Driver ASC;
+
 """
 
 # 4. 쿼리 엔진 생성 (이 녀석이 통역사입니다)
 # LLM은 이미 agent.py에서 설정하겠지만, 여기서도 명시적으로 지정 가능
-llm = Gemini(model="models/gemini-flash-latest")
+
+# 모든 테이블에 족보(Prompt)를 연결해줍니다.
+table_mapping = {
+    "race_results": text_to_sql_prompt_instruction,
+    "lap_times": text_to_sql_prompt_instruction,
+    "weather_data": text_to_sql_prompt_instruction
+}
+
 
 query_engine = NLSQLTableQueryEngine(
     sql_database=sql_database,
     tables=["race_results", "lap_times", "weather_data"],
-    llm=llm,
-    context_query_kwargs={"race_results": text_to_sql_prompt_instruction} # 프롬프트 주입
+    llm=Settings.llm,
+    context_query_kwargs=table_mapping # 프롬프트 주입
 )
 
 # 5. 최종 도구 함수 (Agent가 갖다 쓸 함수)
@@ -117,9 +148,12 @@ def analyze_race_data(query: str):
         return f"[분석 결과]\n{response.response}\n\n(참고 SQL: {executed_sql})"
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"에러 상세: {error_details}")
         return f"데이터 분석 중 오류가 발생했습니다: {e}"
 
 # --- 테스트 실행 ---
 if __name__ == "__main__":
     # 테스트
-    print(analyze_race_data("작년 라스베가스 GP에서 타이어별로 드라이버들의 평균 기록을 비교해줘."))
+    print(analyze_race_data("24년 싱가포르 GP에서 드라이버 순위를 좀 알려줘."))
