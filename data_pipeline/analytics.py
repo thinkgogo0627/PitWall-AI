@@ -152,3 +152,87 @@ def analyze_mini_sector_dominance(year, circuit, drivers=None, session_type='R',
         summary_lines.append(f"- {driver}: {share:.1f}% 구간 지배")
     
     return fig, "\n".join(summary_lines)
+
+
+
+
+# -----------------------------------------------------------------------------
+# 3. 전략 감사(Audit): 실제 피트인 vs 가상의 Stay Out 시나리오 비교
+# -----------------------------------------------------------------------------
+
+def audit_pit_strategy(year, circuit, driver, session_type='R'):
+    """
+    전략 감사(Audit): 실제 피트인 타이밍 vs 가상의 'Stay Out' 시나리오 비교
+    - 실제: 피트인 후 복귀하여 달린 기록
+    - 가상(Ghost): 피트인 하지 않고 (예: 3랩) 더 달렸을 때의 예상 기록
+    """
+    print(f" [전략 감사] {year} {circuit} - {driver} 피트 타이밍 분석 중...")
+    
+    # 1. 데이터 로드
+    session = fastf1.get_session(year, circuit, session_type)
+    session.load(laps=True, telemetry=False, weather=False, messages=False)
+    
+    laps = session.laps.pick_driver(driver)
+    
+    # 2. 피트 스탑 찾기 (타이어를 교체한 랩)
+    # PitInTime이 있거나, Stint가 바뀌는 지점
+    pit_laps = laps[laps['PitOutTime'].notnull()]['LapNumber'].tolist()
+    
+    audit_report = []
+    
+    for pit_lap in pit_laps:
+        # 첫 랩이나 마지막 랩 부근 제외
+        if pit_lap < 5 or pit_lap > laps['LapNumber'].max() - 5:
+            continue
+            
+        print(f"  Lap {int(pit_lap)} 피트인 정밀 분석 시도...")
+        
+        # --- A. 실제 상황 (Reality) ---
+        # 피트 아웃 후 3랩 동안의 기록 (OutLap + 2 Flying Laps)
+        real_future_laps = laps[laps['LapNumber'].between(pit_lap, pit_lap + 3)]
+        if len(real_future_laps) < 4: continue # 데이터 부족하면 패스
+        
+        real_time_taken = real_future_laps['LapTime'].dt.total_seconds().sum()
+        
+        # --- B. 가상 상황 (Ghost: Stay Out) ---
+        # 피트인 직전 5랩의 평균 페이스와 마모도(기울기) 계산
+        past_laps = laps[laps['LapNumber'].between(pit_lap - 5, pit_lap - 1)]
+        if past_laps.empty: continue
+        
+        # 간단한 선형 회귀로 마모도(Slope) 계산
+        x = past_laps['LapNumber']
+        y = past_laps['LapTime'].dt.total_seconds()
+        slope, intercept, _, _, _ = linregress(x, y)
+        
+        # 마모도를 반영하여 향후 3랩(Ghost Laps)의 예상 기록 산출
+        # Ghost Lap T = (직전 랩 시간) + (기울기)
+        last_lap_time = y.iloc[-1]
+        ghost_time_taken = 0
+        current_pred = last_lap_time
+        
+        for i in range(1, 5): # 피트랩 포함 4랩치 계산 (피트로스 vs 주행 비교)
+            # 피트인 랩(InLap)도 그냥 달렸다고 가정
+            current_pred += slope 
+            ghost_time_taken += current_pred
+            
+        # --- C. 비교 및 판정 (Audit Verdict) ---
+        # *주의: 피트 스탑은 약 20~24초 손해를 봄. 
+        # 실제 기록(피트 포함) vs 고스트 기록(그냥 주행) 직접 비교는 어렵고,
+        # "누적 시간" 관점에서 트랙 포지션 손익을 계산해야 함.
+        # 여기서는 MVP용으로 단순화: "피트인으로 인한 손실(약 20초)을 제외하고, 
+        # 새 타이어의 퍼포먼스 이득(Gain)이 고스트카의 마모 손실(Loss)보다 큰가?"를 봅니다.
+        
+        # (더 정교한 로직은 트랙별 Pit Loss Time 데이터가 필요함. 일단 약식 구현)
+        # 만약 실제 전략이 고스트보다 압도적으로 느리다면 -> "Too Early" (너무 일찍 들어옴)
+        # 만약 실제 전략이 고스트와 비슷하거나 빠르다면 -> "Good Timing"
+        
+        # 예시 리포트 데이터 생성
+        audit_report.append({
+            "Pit_Lap": int(pit_lap),
+            "Real_Time_3Laps": round(real_time_taken, 3),
+            "Ghost_Time_3Laps": round(ghost_time_taken, 3),
+            "Degradation_Slope": round(slope, 4),
+            "Verdict": "Analyze Needed" # LLM이 최종 판단하도록 데이터만 넘김
+        })
+        
+    return pd.DataFrame(audit_report)

@@ -4,6 +4,9 @@ import sys
 import os
 import sqlite3
 import pandas as pd
+import fastf1
+from datetime import datetime
+
 
 # 프로젝트 루트 경로 추가 (모듈 import용)
 # 자동으로 프로젝트의 가장 위쪽 폴더 찾아서 등록
@@ -48,6 +51,39 @@ def update_race_data(year, circuit, session='R'):
     else:
         print(" 데이터 수집 실패로 저장 건너뜀.\n")
 
+
+def update_current_season_latest():
+    """
+    현재 연도의 스케줄을 확인하고,
+    '가장 최근에 종료된 경기' 하나를 자동으로 찾아 DB에 업데이트합니다.
+    (이미 DB에 있어도 덮어쓰거나 추가하도록 설계됨)
+    """
+    current_year = datetime.now().year
+    print(f" [Smart Update] {current_year} 시즌 최신 경기 확인 중...")
+    
+    try:
+        schedule = fastf1.get_event_schedule(current_year)
+        
+        # 오늘 날짜보다 이전에 끝난 경기들
+        past_races = schedule[schedule['EventDate'] < datetime.now()]
+        
+        if past_races.empty:
+            print("    아직 진행된 경기가 없습니다.")
+            return
+
+        # 가장 마지막 경기 (Last Round)
+        last_race = past_races.iloc[-1]
+        
+        round_num = last_race['RoundNumber']
+        event_name = last_race['EventName']
+        
+        print(f"    타겟 포착: Round {round_num} - {event_name}")
+        
+        # 해당 경기 업데이트 실행
+        update_race_data(current_year, round_num, session='R')
+        
+    except Exception as e:
+        print(f" 스마트 업데이트 실패: {e}")
 
 
 if __name__ == "__main__":
