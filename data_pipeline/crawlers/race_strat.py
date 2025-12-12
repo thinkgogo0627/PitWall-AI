@@ -121,8 +121,3 @@ def crawl(limit=5):
             print("🚜 드라이버 종료 완료.")
             
     return pd.DataFrame(articles)
-
-# --- 테스트 실행용 ---
-if __name__ == "__main__":
-    df = crawl(limit=3)
-    print(df.head())
