@@ -25,7 +25,7 @@ def setup_driver():
 
 def get_article_links(driver, limit=5):
     """분석(Analysis) 섹션에서 기사 URL 수집"""
-    print(f"🌍 F1 공홈 진입: {BASE_URL}")
+    print(f" F1 공홈 진입: {BASE_URL}")
     driver.get(BASE_URL)
     time.sleep(3) # 로딩 대기
 
@@ -40,7 +40,7 @@ def get_article_links(driver, limit=5):
     target_links = []
     seen_urls = set()
 
-    print(f"🔍 링크 스캔 중...")
+    print(f" 링크 스캔 중...")
     
     for link in links:
         try:
@@ -54,7 +54,7 @@ def get_article_links(driver, limit=5):
                     if href not in seen_urls:
                         seen_urls.add(href)
                         target_links.append({"href": href, "title": title})
-                        print(f"  🎯 [Target] {title[:40]}...")
+                        print(f"   [Target] {title[:40]}...")
                         
             if len(target_links) >= limit:
                 break
@@ -80,7 +80,7 @@ def extract_content(driver, url):
         
         return " ".join(content)
     except Exception as e:
-        print(f"    ❌ 본문 추출 에러: {e}")
+        print(f"     본문 추출 에러: {e}")
         return ""
 
 def crawl(limit=5):
@@ -90,7 +90,7 @@ def crawl(limit=5):
     
     try:
         driver = setup_driver()
-        print("🚜 F1 공식 리포트 수집 시작...")
+        print(" F1 공식 리포트 수집 시작...")
         
         # 1. 링크 수집
         targets = get_article_links(driver, limit)
@@ -98,7 +98,7 @@ def crawl(limit=5):
         
         # 2. 본문 순회
         for item in targets:
-            print(f"  👉 접속: {item['title'][:30]}...")
+            print(f"   접속: {item['title'][:30]}...")
             text = extract_content(driver, item['href'])
             
             if len(text) > 500:
@@ -108,16 +108,16 @@ def crawl(limit=5):
                     "context": text,
                     "source": "F1 Official Analysis"
                 })
-                print(f"    ✅ 성공 ({len(text)}자)")
+                print(f"     성공 ({len(text)}자)")
             else:
-                print("    ⚠️ 실패 (내용 부족)")
+                print("     실패 (내용 부족)")
                 
     except Exception as e:
-        print(f"🔥 크롤링 중 치명적 오류: {e}")
+        print(f" 크롤링 중 치명적 오류: {e}")
         
     finally:
         if driver:
             driver.quit()
-            print("🚜 드라이버 종료 완료.")
+            print(" 드라이버 종료 완료.")
             
     return pd.DataFrame(articles)

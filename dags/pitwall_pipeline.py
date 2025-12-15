@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # --- [환경 설정] ---
 # 1. 프로젝트 루트 경로를 찾아서 시스템 경로에 추가 (모듈 import용)
-# Airflow가 실행될 때 이 파일의 위치를 기준으로 프로젝트 루트를 찾게 합니다.
+# Airflow가 실행될 때 이 파일의 위치를 기준으로 프로젝트 루트를 찾음
 dag_file_dir = os.path.dirname(os.path.realpath(__file__))
 project_root = os.path.abspath(os.path.join(dag_file_dir, '../')) # dags 폴더의 상위 폴더
 
@@ -20,10 +20,9 @@ env_path = os.path.join(project_root, '.env')
 load_dotenv(env_path)
 
 # --- [모듈 Import] ---
-# 우리가 만든 파이썬 모듈들을 가져옵니다.
 from data_pipeline.pipelines.update_race_weekly import update_weekly_news
 from data_pipeline.pipelines.update_db import update_race_data
-from data_pipeline.analytics import audit_pit_strategy
+from data_pipeline.analytics import calculate_tire_degradation
 from data_pipeline.pipelines.update_db import update_current_season_latest, update_race_data
 
 # --- [Default Arguments] ---
@@ -44,7 +43,7 @@ with DAG(
     schedule_interval='0 9 * * 1', # 매주 월요일 아침 9시
     start_date=datetime(2024, 1, 1),
     catchup=False, # 과거 날짜꺼 한꺼번에 돌리지 않기
-    tags=['F1', 'Strategy', 'PitWall'],
+    tags=['F1', 'Weekly','Strategy', 'PitWall'],
 ) as dag:
 
     # Task 1: 뉴스 데이터 수집 (Soft Data)
@@ -59,22 +58,17 @@ with DAG(
         python_callable=update_current_season_latest,
     )
 
-    # Task 3: 전략 감사관 실행 (Audit)
-    def run_strategy_audit():
-        # 실전 수정 필요!!!
-        print(" 전략 감사관 가동 중...")
-        audit_df = audit_pit_strategy(2024, 'Singapore', 'NOR')
-        
-        if not audit_df.empty:
-            print(f"\n [AUDIT REPORT: Lando Norris]\n{audit_df.to_markdown()}")
-        else:
-            print(" 분석할 피트스탑 데이터가 없습니다.")
-
-    t3_audit_strategy = PythonOperator(
-        task_id='run_strategy_audit',
-        python_callable=run_strategy_audit,
+    def finish_job():
+        print('주간 업데이트 작업 완료')
+    
+    t3_finish = PythonOperator(
+        task_id = 'pipeline_finish',
+        python_callable = finish_job
     )
+
+   
+    
 
     # --- [파이프라인 순서] ---
     # 뉴스를 먼저 보고 -> 경기 데이터를 업데이트 하고 -> 전략을 분석한다
-    t1_crawl_news >> t2_update_race >> t3_audit_strategy
+    t1_crawl_news >> t2_update_race >> t3_finish

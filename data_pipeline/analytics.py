@@ -37,7 +37,7 @@ def calculate_tire_degradation(year, circuit, drivers=None, session_type='R'):
     for driver in drivers:
         try:
             # 1. 전체 랩 (메타데이터용)
-            all_laps = session.laps.pick_driver(driver)
+            all_laps = session.laps.pick_drivers(driver)
             
             for stint_id in all_laps['Stint'].unique():
                 raw_stint = all_laps[all_laps['Stint'] == stint_id]
@@ -106,7 +106,7 @@ def analyze_mini_sector_dominance(year, circuit, drivers=None, session_type='R',
     telemetry_list = []
     for driver in drivers:
         try:
-            lap = session.laps.pick_driver(driver).pick_fastest()
+            lap = session.laps.pick_drivers(driver).pick_fastest()
             tel = lap.get_telemetry().add_distance()
             tel['Driver'] = driver
             telemetry_list.append(tel)
@@ -168,13 +168,90 @@ def calculate_slope(laps):
     slope, _, _, _, _ = linregress(x, y)
     return slope
 
+
+def is_sc_affected(laps, lap_number):
+    '''
+    TrackStatus: 1 = Greenplag , 2 = 옐로플래그 , 4 = SC , 5 = Red,
+    6 = VSC , 7 = VSC Ending
+    '''
+    try:
+        lap_data = laps[laps['LapNumber'] == lap_number]
+        if lap_data.empty: return False
+
+        status = str(lap_data['TrackStatus'].iloc[0])
+
+        # '4'(SC), '6'(VSC), '7'(VSC Ending)이 포함되어 있으면 True
+        if any(code in status for code in ['4', '5', '6', '7']):
+            return True
+            
+        return False
+    except Exception:
+        return False
+
+
 def get_pit_loss_time(circuit, year):
     """
-    서킷별 평균 피트 로스 타임 반환 (MVP용 하드코딩)
-    실제로는 DB나 Config에서 가져와야 함.
+    서킷, 년도별 평균 피트 로스타임
+    '피트 스탑 때문에 트랙에서 손해 본 총 시간' 구해야 함
+    (T_inlap + T_outlap) - (2*avg_T_Normallap)
     """
-    # 대략적인 평균값 (20~24초)
-    return 22.0 
+    try:
+        # 정상적인 랩 필터링 -> 전체 드라이버의 평균 레이스 랩타임
+        session = fastf1.get_session(year, circuit, 'R')
+        good_laps = session.laps.pick_quicklaps().pick_track_status('1')
+        if good_laps.empty: return 22.0 # 데이터 없으면 기본값
+
+        avg_normal_lap = good_laps['LapTime'].dt.total_seconds().median()
+
+        # 2. 피트스탑 샘플 수집
+        pit_loss_samples = []
+
+        for driver in session.drivers:
+            d_laps = session.laps.pick_drivers(driver)
+
+            # 피트스탑 한 랩 찾기
+            pit_in_laps = d_laps[d_laps['PitInTime'].notnull()]['LapNumber'].tolist()
+
+            for lap_num in pit_in_laps:
+                # In-Lap (들어가는 랩)
+                in_lap = d_laps[d_laps['LapNumber'] == lap_num]
+                # Out-Lap (나오는 랩) - 보통 그 다음 랩
+                out_lap = d_laps[d_laps['LapNumber'] == lap_num + 1]
+                
+                if in_lap.empty or out_lap.empty: continue
+                
+                # SC/VSC 상황이었다면 샘플에서 제외 (왜곡 방지)
+                if is_sc_affected(session.laps, lap_num) or is_sc_affected(session.laps, lap_num + 1):
+                    continue
+                
+                # 시간 계산
+                t_in = in_lap['LapTime'].dt.total_seconds().iloc[0]
+                t_out = out_lap['LapTime'].dt.total_seconds().iloc[0]
+                
+                if np.isnan(t_in) or np.isnan(t_out): continue
+                
+                # 피트 로스 = (In + Out) - (2 * Normal)
+                # 단, 피트 스탑 정지 시간(Stationary Time)은 전략에 따라 다르므로
+                # 순수한 '트랙 손실' + '평균 정지 시간(약 2~3초)'이 포함된 값으로 계산됨.
+                loss = (t_in + t_out) - (2 * avg_normal_lap)
+                
+                # 비정상적인 값 필터링 (10초 미만이거나 40초 초과면 이상치일 확률 높음)
+                if 10.0 < loss < 40.0:
+                    pit_loss_samples.append(loss)
+                    
+        # 3. 평균값 도출
+        if not pit_loss_samples:
+            return 22.0 # 샘플 없으면 기본값
+            
+        calculated_loss = np.mean(pit_loss_samples)
+        # print(f"   📉 Calculated Dynamic Pit Loss: {round(calculated_loss, 2)}s (Samples: {len(pit_loss_samples)})")
+        return calculated_loss
+
+    except Exception as e:
+        print(f"⚠️ 피트 로스 계산 실패: {e}, 기본값 사용")
+        return 22.0
+
+
 
 # --- [Target 1] 조기 피트인 판정 (더 버티는 게 나았나?) ---
 def audit_extension(driver_laps, pit_lap, slope, pit_loss):
@@ -223,7 +300,7 @@ def audit_opportunity(session, driver, pit_lap, pit_loss):
     lap_check = pit_lap - 2
     drivers = session.drivers
     
-    my_pos = session.laps.pick_driver(driver).pick_lap(lap_check)['Position'].iloc[0]
+    my_pos = session.laps.pick_drivers(driver).pick_lap(lap_check)['Position'].iloc[0]
     if my_pos == 1:
         return {"verdict": "Leader", "desc": "1위 주행 중 (추월 대상 없음)"}
         
@@ -252,7 +329,7 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
         return f"데이터 로드 실패: {e}"
     
     laps = session.laps
-    driver_laps = laps.pick_driver(driver)
+    driver_laps = laps.pick_drivers(driver)
     
     # 피트 스탑 감지
     pit_laps = driver_laps[driver_laps['PitOutTime'].notnull()]['LapNumber'].tolist()
@@ -265,6 +342,27 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
     
     for pit_lap in pit_laps:
         if pit_lap < 5 or pit_lap > driver_laps['LapNumber'].max() - 5: continue
+
+        # SC/VSC 감지 로직 추가
+        is_sc = False
+        ## 피트랩 포함 앞뒤 1랩 검사
+        for check_lap in range(int(pit_lap)-1, int(pit_lap)+1):
+            if is_sc_affected(laps, check_lap):
+                is_sc = True
+                break
+
+        if is_sc: # 세이프티카 상황이라면?
+            # 분석 스킵 -> 로그만 남기기
+            reports.append({
+                "Pit_Lap": int(pit_lap),
+                "Tire_Slope": 0.0,
+                "Audit_Type": "SC condition",
+                "Verdict": "Pass",
+                "Detail": "SC/VSC 상황으로 인해 데이터 왜곡 가능성 존재 (분석에서 제외)",
+                "Opportunity_Check": "-"
+            })
+            continue # 다음 피트스톱으로 넘어가기
+
         
         # 1. 마모도(Slope) 계산 (직전 5랩)
         past_laps = driver_laps[driver_laps['LapNumber'].between(pit_lap - 5, pit_lap - 1)]
@@ -289,5 +387,5 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
 
 
 if __name__ == "__main__":
-    df = audit_race_strategy(2023, 'Singapore' , 'VER')
+    df = audit_race_strategy(2025, 'Qatar' , 'SAI')
     print(df.to_markdown())

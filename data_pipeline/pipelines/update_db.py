@@ -55,7 +55,7 @@ def update_race_data(year, circuit, session='R'):
 def update_current_season_latest():
     """
     현재 연도의 스케줄을 확인하고,
-    '가장 최근에 종료된 경기' 하나를 자동으로 찾아 DB에 업데이트합니다.
+    '가장 최근에 종료된 경기' 하나를 자동으로 찾아 DB에 업데이트 수행.
     (이미 DB에 있어도 덮어쓰거나 추가하도록 설계됨)
     """
     current_year = datetime.now().year
@@ -81,9 +81,12 @@ def update_current_season_latest():
         
         # 해당 경기 업데이트 실행
         update_race_data(current_year, round_num, session='R')
+        print(f' Round {round_num} 업데이트 완료 (혹은 이미 최신 상태)')
         
     except Exception as e:
         print(f" 스마트 업데이트 실패: {e}")
+
+        raise e
 
 
 if __name__ == "__main__":

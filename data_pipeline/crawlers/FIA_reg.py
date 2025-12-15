@@ -45,7 +45,7 @@ def crawl(doc_type="sporting", year=2024):
         articles = []
         doc_title = f"{year} F1 {doc_type.capitalize()} Regulations"
         
-        print(f"✅ 파싱 시작 (총 {len(reader.pages)} 페이지)")
+        print(f" 파싱 시작 (총 {len(reader.pages)} 페이지)")
         
         for i, page in enumerate(reader.pages):
             text = page.extract_text()
