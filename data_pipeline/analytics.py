@@ -189,7 +189,7 @@ def is_sc_affected(laps, lap_number):
         return False
 
 
-def get_pit_loss_time(circuit, year):
+def get_pit_loss_time(session):
     """
     서킷, 년도별 평균 피트 로스타임
     '피트 스탑 때문에 트랙에서 손해 본 총 시간' 구해야 함
@@ -197,7 +197,6 @@ def get_pit_loss_time(circuit, year):
     """
     try:
         # 정상적인 랩 필터링 -> 전체 드라이버의 평균 레이스 랩타임
-        session = fastf1.get_session(year, circuit, 'R')
         good_laps = session.laps.pick_quicklaps().pick_track_status('1')
         if good_laps.empty: return 22.0 # 데이터 없으면 기본값
 
@@ -244,11 +243,11 @@ def get_pit_loss_time(circuit, year):
             return 22.0 # 샘플 없으면 기본값
             
         calculated_loss = np.mean(pit_loss_samples)
-        # print(f"   📉 Calculated Dynamic Pit Loss: {round(calculated_loss, 2)}s (Samples: {len(pit_loss_samples)})")
+        # print(f"    Calculated Dynamic Pit Loss: {round(calculated_loss, 2)}s (Samples: {len(pit_loss_samples)})")
         return calculated_loss
 
     except Exception as e:
-        print(f"⚠️ 피트 로스 계산 실패: {e}, 기본값 사용")
+        print(f" 피트 로스 계산 실패: {e}, 기본값 사용")
         return 22.0
 
 
@@ -326,61 +325,63 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
         session = fastf1.get_session(year, circuit, session_type)
         session.load(laps=True, telemetry=False, weather=False, messages=False)
     except Exception as e:
-        return f"데이터 로드 실패: {e}"
+        print(f" 데이터 로드 실패: {e}")
+        return pd.DataFrame()
+    
+    # ★ [변경점] 여기서 동적으로 피트 로스를 계산합니다!
+    pit_loss = get_pit_loss_time(session)
+    print(f"   [Info] 적용된 Pit Loss Time: {round(pit_loss, 2)}초")
     
     laps = session.laps
-    driver_laps = laps.pick_drivers(driver)
+    try:
+        driver_laps = laps.pick_driver(driver)
+    except KeyError:
+        return pd.DataFrame()
     
-    # 피트 스탑 감지
     pit_laps = driver_laps[driver_laps['PitOutTime'].notnull()]['LapNumber'].tolist()
     
     if not pit_laps:
-        return "피트 스탑 기록이 없습니다."
+        return pd.DataFrame()
         
     reports = []
-    pit_loss = get_pit_loss_time(circuit, year)
     
     for pit_lap in pit_laps:
-        if pit_lap < 5 or pit_lap > driver_laps['LapNumber'].max() - 5: continue
-
-        # SC/VSC 감지 로직 추가
+        if pit_lap < 5 or pit_lap > driver_laps['LapNumber'].max() - 5: 
+            continue
+        
+        # SC 체크 (기존 로직 유지)
         is_sc = False
-        ## 피트랩 포함 앞뒤 1랩 검사
-        for check_lap in range(int(pit_lap)-1, int(pit_lap)+1):
-            if is_sc_affected(laps, check_lap):
-                is_sc = True
-                break
-
-        if is_sc: # 세이프티카 상황이라면?
-            # 분석 스킵 -> 로그만 남기기
+        for check_lap in range(int(pit_lap)-2, int(pit_lap)+2):
+             if is_sc_affected(laps, check_lap):
+                 is_sc = True
+                 break
+        
+        if is_sc:
             reports.append({
                 "Pit_Lap": int(pit_lap),
-                "Tire_Slope": 0.0,
-                "Audit_Type": "SC condition",
+                "Audit_Type": "Safety Car Condition",
                 "Verdict": "Pass",
-                "Detail": "SC/VSC 상황으로 인해 데이터 왜곡 가능성 존재 (분석에서 제외)",
+                "Detail": "SC/VSC 상황 (분석 제외)",
                 "Opportunity_Check": "-"
             })
-            continue # 다음 피트스톱으로 넘어가기
+            continue 
 
-        
-        # 1. 마모도(Slope) 계산 (직전 5랩)
+        # 분석 수행
         past_laps = driver_laps[driver_laps['LapNumber'].between(pit_lap - 5, pit_lap - 1)]
         slope = calculate_slope(past_laps)
         
-        # 2. Target 1: Extension Audit (방어)
+        # 여기서 계산된 pit_loss 변수를 넘겨줍니다
         ext_result = audit_extension(driver_laps, pit_lap, slope, pit_loss)
-        
-        # 3. Target 2: Opportunity Audit (공격)
         opp_result = audit_opportunity(session, driver, pit_lap, pit_loss)
         
         if ext_result:
             reports.append({
                 "Pit_Lap": int(pit_lap),
-                "Slope": round(slope, 4),
-                "Extension_Verdict": ext_result['verdict'],
-                "Extension_Detail": ext_result['desc'],
-                "Opportunity_Detail": opp_result['desc']
+                "Tire_Slope": round(slope, 4),
+                "Audit_Type": "Extension (Defense)",
+                "Verdict": ext_result['verdict'],
+                "Detail": ext_result['desc'],
+                "Opportunity_Check": opp_result['desc']
             })
             
     return pd.DataFrame(reports)
