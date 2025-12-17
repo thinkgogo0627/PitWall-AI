@@ -25,16 +25,17 @@ api_key = os.getenv("GOOGLE_API_KEY")
 from sqlalchemy import create_engine
 from llama_index.core import SQLDatabase
 from llama_index.core.query_engine import NLSQLTableQueryEngine
-from llama_index.core import Settings
+from llama_index.core import Settings, PromptTemplate
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.gemini import Gemini
+from llama_index.llms.google_genai import GoogleGenAI
+from tenacity import retry, stop_after_attempt, wait_exponential # 재시도 로직
 
 Settings.embed_model = HuggingFaceEmbedding(
     model_name="BAAI/bge-m3",
     device="cuda" # GPU 없으면 "cpu"
 )
 
-Settings.llm = Gemini(model="models/gemini-2.5-flash", api_key=api_key)
+Settings.llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
 
 
 # 프로젝트 루트 경로 추가
@@ -42,20 +43,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 
 # 1. DB 연결 (SQLAlchemy Engine 사용)
 # SQLite 파일 경로 지정
-db_path = "sqlite:///data/f1_data.db" # 주의: sqlite:/// 접두사 필수
+db_path = f"sqlite:///{os.path.join(root_dir, 'data/f1_data.db')}"
 engine = create_engine(db_path)
+sql_database = SQLDatabase(engine, include_tables=["race_results", "lap_times", "weather_data"])
 
-# 2. SQLDatabase 객체 생성
-# include_tables: LLM이 볼 수 있는 테이블을 지정 (보안 및 정확도 향상)
-sql_database = SQLDatabase(
-    engine, 
-    include_tables=["race_results", "lap_times", "weather_data"]
-)
 
 # 3. ★ 핵심: 퓨샷(Few-Shot) 예시 주입 ★
-# LLM에게 "이렇게 짜는 거야"라고 가르치는 족보입니다.
-# 아까 님이 만든 그 3개의 쿼리를 여기 넣습니다.
-text_to_sql_prompt_instruction = """
+# LLM에게 "이렇게 짜는 거야"라고 가르치는 족보
+combined_prompt_str = """
 당신은 F1 데이터 분석 전문가입니다. 사용자의 자연어 질문을 실행 가능한 SQL 쿼리로 변환하고, 그 결과를 분석해주세요.
 데이터베이스는 SQLite를 사용합니다.
 
@@ -69,14 +64,27 @@ text_to_sql_prompt_instruction = """
 
    
 [테이블 정보]
-- race_results: 경기 순위(Position), 그리드(GridPosition), 포인트(Points)
-- lap_times: 랩타임(LapTime_Sec), 타이어(Compound), 타이어수명(TyreLife)
-- weather_data: 기온(AirTemp), 트랙온도(TrackTemp)
+- race_results(RaceID, Driver, Position, GridPosition, Points, Status, Year, Circuit)
+- lap_times(RaceID, Driver, LapNumber, LapTime_Sec, Compound, TyreLife, IsAccurate)
+- weather_data(RaceID, AirTemp, TrackTemp, Humidity, Rainfall)
+
 
 [쿼리 작성 가이드]
 1. 중반 페이스 분석 시: 전체 랩의 15% ~ 85% 구간만 필터링하여 평균을 구하세요.
 2. 순위 상승폭(Overtaking): (GridPosition - Position)으로 계산하세요.
 3. 쿼리는 반드시 SQLite 문법을 따르세요.
+
+[★ ABSOLUTE RULES - 어기면 에러로 간주함 ★]
+1. **무조건 와일드카드(%) 사용**: 
+   - 문자열 검색(RaceID, Driver)은 100% 확률로 **LIKE '%keyword%'** 형식을 써야 합니다.
+   - (X) RaceID = '2025_Las_Vegas'
+   - (O) RaceID LIKE '%Las_Vegas%'
+2. **드라이버 검색**: 
+   - 이름의 일부만 있어도 찾을 수 있게 앞뒤로 %를 붙이세요. (예: LIKE '%ANT%')
+3. **Boolean 처리**: IsAccurate = 1 (True), 0 (False)
+4. 4. **세션 구분**: 사용자가 특별히 "연습(Practice)", "예선(Qualifying)"을 언급하지 않으면, 
+   기본적으로 **RaceID에 'Grand_Prix' 또는 'Race'가 포함된 데이터만 조회**하세요.
+   (AND RaceID NOT LIKE '%Practice%' AND RaceID NOT LIKE '%Qualifying%')
 
 [예시 1: 타이어별 평균 페이스 비교]
 Q: "라스베가스에서 타이어별 평균 랩타임 보여줘"
@@ -109,51 +117,74 @@ WHERE RaceID LIKE '2025%'
 GROUP BY Driver, Compound
 ORDER BY Driver ASC;
 
+
+[예시 4: 단순 순위/결과 조회]
+Q: "2023 싱가포르에서 카를로스 사인츠 순위 알려줘"
+SQL: SELECT Position, Driver, Status, Points 
+FROM race_results
+WHERE RaceID LIKE '%Singapore%' AND Driver LIKE '%SAI%';
+
+Question: {query_str}
+SQLQuery:
 """
 
-# 4. 쿼리 엔진 생성 (이 녀석이 통역사입니다)
+# 4. 쿼리 엔진 생성
 # LLM은 이미 agent.py에서 설정하겠지만, 여기서도 명시적으로 지정 가능
-
+text_to_sql_template = PromptTemplate(combined_prompt_str)
 # 모든 테이블에 족보(Prompt)를 연결해줍니다.
-table_mapping = {
-    "race_results": text_to_sql_prompt_instruction,
-    "lap_times": text_to_sql_prompt_instruction,
-    "weather_data": text_to_sql_prompt_instruction
-}
-
 
 query_engine = NLSQLTableQueryEngine(
     sql_database=sql_database,
     tables=["race_results", "lap_times", "weather_data"],
-    llm=Settings.llm,
-    context_query_kwargs=table_mapping # 프롬프트 주입
+    llm=Settings.llm
 )
 
+# ★ 여기서 엔진의 뇌를 갈아끼웁니다. (핵심)
+query_engine.update_prompts(
+    {"sql_retriever:text_to_sql_prompt": text_to_sql_template}
+)
+
+@retry(
+    stop=stop_after_attempt(10), 
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    reraise=True
+)
+def _query_with_retry(query_str):
+    """
+    실제 쿼리 엔진을 호출하는 내부 함수. 
+    503 에러가 나면 여기서 자동으로 재시도합니다.
+    """
+    return query_engine.query(query_str)
+
+
+
 # 5. 최종 도구 함수 (Agent가 갖다 쓸 함수)
-def analyze_race_data(query: str):
+def analyze_race_data(query: str) -> str:
     """
     자연어 질문을 받아 실제 DB에서 SQL을 실행하여 분석 결과를 반환합니다.
-    "베르스타펜의 평균 랩타임은?", "순위를 가장 많이 올린 사람은?" 같은 질문에 사용합니다.
     """
     print(f" Hard Data 분석 요청: '{query}'")
-    
+
     try:
-        # 1. LLM이 SQL 생성 -> 2. 실행 -> 3. 결과를 텍스트로 요약
-        response = query_engine.query(query)
+        # ★ 수정됨: query_engine.query()를 직접 부르지 않고, 재시도 함수를 호출합니다.
+        response = _query_with_retry(query)
         
-        # response.metadata['sql_query'] 에 실제 실행된 SQL이 들어있음 (디버깅용)
         executed_sql = response.metadata.get('sql_query', 'SQL 정보 없음')
         print(f"   └ 생성된 SQL: {executed_sql}")
         
-        return f"[분석 결과]\n{response.response}\n\n(참고 SQL: {executed_sql})"
+        return f"[분석 결과]\n{response.response}\n\n(실행된 SQL: {executed_sql})"
         
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"에러 상세: {error_details}")
-        return f"데이터 분석 중 오류가 발생했습니다: {e}"
+        # 10번 다 재시도했는데도 실패하면 여기로 옵니다.
+        print(f" SQL 실행 에러 (최종 실패): {e}")
+        return f"데이터 분석 중 오류 발생 (서버 과부하): {e}"
+
 
 # --- 테스트 실행 ---
 if __name__ == "__main__":
-    # 테스트
-    print(analyze_race_data("24년 싱가포르 GP에서 드라이버 순위를 좀 알려줘."))
+    # 테스트 1: 단순 순위 (이제 %가 잘 들어갈 것임)
+    print(analyze_race_data("2025 라스베이거스에서 안토넬리 순위 알려줘"))
+    
+    # 테스트 2: 복잡한 쿼리 (님의 퓨샷 로직 확인)
+    print("\n" + "="*30 + "\n")
+    print(analyze_race_data("라스베가스 GP에서 타이어별 평균 랩타임은?"))

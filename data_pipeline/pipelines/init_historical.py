@@ -22,7 +22,7 @@ def init_historical_data_by_year(target_year):
         schedule = fastf1.get_event_schedule(target_year)
         completed_races = schedule[schedule['EventDate'] < datetime.now()]
         
-        print(f"\n📅 {target_year}년 시즌: 총 {len(completed_races)}개 경기 처리 예정")
+        print(f"\n {target_year}년 시즌: 총 {len(completed_races)}개 경기 처리 예정")
         
         for _, row in completed_races.iterrows():
             round_num = row['RoundNumber']

@@ -80,9 +80,9 @@ def calculate_tire_degradation(year, circuit, drivers=None, session_type='R'):
 
 
 # -----------------------------------------------------------------------------
-# 2. 미니 섹터 지배력 분석 (Mini-Sector Dominance)
+# 2. 미니 섹터 지배력 분석 (Mini-Sector Dominance) for 기능 2
 # -----------------------------------------------------------------------------
-def analyze_mini_sector_dominance(year, circuit, drivers=None, session_type='R', total_chunks=25):
+def mini_sector_dominance_analyze(year, circuit, drivers=None, session_type='R', total_chunks=25):
     """
     서킷 미니 섹터 분석 -> 시각화 객체(fig)와 요약 텍스트(text) 반환
     """
