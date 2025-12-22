@@ -82,9 +82,14 @@ combined_prompt_str = """
 2. **드라이버 검색**: 
    - 이름의 일부만 있어도 찾을 수 있게 앞뒤로 %를 붙이세요. (예: LIKE '%ANT%')
 3. **Boolean 처리**: IsAccurate = 1 (True), 0 (False)
-4. 4. **세션 구분**: 사용자가 특별히 "연습(Practice)", "예선(Qualifying)"을 언급하지 않으면, 
+4. **세션 구분**: 사용자가 특별히 "연습(Practice)", "예선(Qualifying)"을 언급하지 않으면, 
    기본적으로 **RaceID에 'Grand_Prix' 또는 'Race'가 포함된 데이터만 조회**하세요.
    (AND RaceID NOT LIKE '%Practice%' AND RaceID NOT LIKE '%Qualifying%')
+
+5. **차량 번호 필수 포함**: 드라이버나 순위 관련 조회 시, 반드시 **'No' 컬럼(차량 번호)**을 SELECT 절에 포함하세요.
+   - (X) SELECT Driver, Position ...
+   - (O) SELECT No, Driver, Position ...  <-- 이렇게!
+
 
 [예시 1: 타이어별 평균 페이스 비교]
 Q: "라스베가스에서 타이어별 평균 랩타임 보여줘"

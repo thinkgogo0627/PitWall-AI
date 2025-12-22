@@ -319,74 +319,110 @@ def audit_opportunity(session, driver, pit_lap, pit_loss):
 
 # --- [Main Wrapper] 메인 실행 함수 ---
 def audit_race_strategy(year, circuit, driver, session_type='R'):
-    print(f" [전략 감사] {year} {circuit} - {driver} 분석 중...")
-    
+    """
+    [Hybrid Strategy Auditor]
+    1. 기본: 타이어 스틴트 정보 (무조건 반환)
+    2. 심화: 피트스탑 타이밍 적절성 감사 (특이사항 있을 때만 추가)
+    """
+    print(f"⚙️ [전략 감사] {year} {circuit} - Driver Input: {driver}")
+
+    # --- [Step 1: 데이터 로드 및 안전장치 (Safety Net)] ---
     try:
         session = fastf1.get_session(year, circuit, session_type)
         session.load(laps=True, telemetry=False, weather=False, messages=False)
     except Exception as e:
-        print(f" 데이터 로드 실패: {e}")
+        print(f"❌ 데이터 로드 실패: {e}")
         return pd.DataFrame()
-    
-    # ★ [변경점] 여기서 동적으로 피트 로스를 계산합니다!
-    pit_loss = get_pit_loss_time(session)
-    print(f"   [Info] 적용된 Pit Loss Time: {round(pit_loss, 2)}초")
-    
-    laps = session.laps
+
+    # 드라이버 식별자 변환 (ANT -> 12)
+    target_driver = str(driver).strip()
+    if target_driver not in session.drivers:
+        print(f"⚠️ [Check] '{target_driver}' 드라이버 코드 재확인 중...")
+        found = False
+        for d_num in session.drivers:
+            if session.get_driver(d_num)['Abbreviation'] == target_driver.upper():
+                target_driver = d_num
+                print(f"   └ 약어 매칭 성공! '{driver}' -> '{target_driver}'(No)로 변환")
+                found = True
+                break
+        if not found:
+            print(f" 세션에 드라이버 '{driver}'가 없습니다.")
+            return pd.DataFrame()
+
     try:
-        driver_laps = laps.pick_driver(driver)
+        driver_laps = session.laps.pick_drivers(target_driver)
     except KeyError:
         return pd.DataFrame()
-    
-    pit_laps = driver_laps[driver_laps['PitOutTime'].notnull()]['LapNumber'].tolist()
-    
-    if not pit_laps:
-        return pd.DataFrame()
-        
-    reports = []
-    
-    for pit_lap in pit_laps:
-        if pit_lap < 5 or pit_lap > driver_laps['LapNumber'].max() - 5: 
-            continue
-        
-        # SC 체크 (기존 로직 유지)
-        is_sc = False
-        for check_lap in range(int(pit_lap)-2, int(pit_lap)+2):
-             if is_sc_affected(laps, check_lap):
-                 is_sc = True
-                 break
-        
-        if is_sc:
-            reports.append({
-                "Pit_Lap": int(pit_lap),
-                "Audit_Type": "Safety Car Condition",
-                "Verdict": "Pass",
-                "Detail": "SC/VSC 상황 (분석 제외)",
-                "Opportunity_Check": "-"
-            })
-            continue 
 
-        # 분석 수행
-        past_laps = driver_laps[driver_laps['LapNumber'].between(pit_lap - 5, pit_lap - 1)]
-        slope = calculate_slope(past_laps)
+    if driver_laps.empty:
+        return pd.DataFrame()
+
+    # --- [Step 2: 기본 스틴트 분석 (The Base Meal)] ---
+    # 이 부분은 전략의 좋고 나쁨을 떠나 '팩트'를 기록합니다.
+    driver_laps['Stint'] = driver_laps['Stint'].fillna(0).astype(int)
+    
+    stint_summary = []
+    pit_loss = get_pit_loss_time(session) # Pit loss 계산
+    
+    for stint_no, stint_laps in driver_laps.groupby('Stint'):
+        if stint_laps.empty: continue
         
-        # 여기서 계산된 pit_loss 변수를 넘겨줍니다
-        ext_result = audit_extension(driver_laps, pit_lap, slope, pit_loss)
-        opp_result = audit_opportunity(session, driver, pit_lap, pit_loss)
+        compound = stint_laps['Compound'].iloc[0]
+        laps_run = len(stint_laps)
+        start_lap = stint_laps['LapNumber'].min()
+        end_lap = stint_laps['LapNumber'].max()
+        avg_pace = stint_laps['LapTime'].mean().total_seconds()
         
-        if ext_result:
-            reports.append({
-                "Pit_Lap": int(pit_lap),
-                "Tire_Slope": round(slope, 4),
-                "Audit_Type": "Extension (Defense)",
-                "Verdict": ext_result['verdict'],
-                "Detail": ext_result['desc'],
-                "Opportunity_Check": opp_result['desc']
-            })
+        # 기본 정보 저장
+        stint_info = {
+            "Stint": int(stint_no),
+            "Compound": compound,
+            "Laps_Run": int(laps_run),
+            "Start_Lap": int(start_lap),
+            "End_Lap": int(end_lap),
+            "Avg_Pace": round(avg_pace, 3) if not np.isnan(avg_pace) else 0.0,
+            "Strategy_Verdict": "-", # 기본값
+            "Detail": "Normal Stint" # 기본값
+        }
+        
+        # --- [Step 3: 심화 감사 (The Special Sauce)] ---
+        # 해당 스틴트가 끝날 때(피트인) 문제가 있었는지 체크
+        # (마지막 스틴트는 피트인을 안 하므로 제외)
+        if stint_no < driver_laps['Stint'].max():
+            pit_in_lap = end_lap # 스틴트의 마지막 랩 = 피트 인 랩
             
-    return pd.DataFrame(reports)
+            # 님이 만드신 엄격한 조건 체크
+            # 1. 너무 초반/후반 아님
+            # 2. SC 상황 아님
+            if (pit_in_lap > 5) and (pit_in_lap < driver_laps['LapNumber'].max() - 2):
+                is_sc = False
+                for check_lap in range(int(pit_in_lap)-2, int(pit_in_lap)+2):
+                     if is_sc_affected(session.laps, check_lap):
+                         is_sc = True
+                         break
+                
+                if not is_sc:
+                    # 심화 분석 함수 호출 (Extension/Opportunity)
+                    # slope 계산 등 필요한 전처리
+                    past_laps = driver_laps[driver_laps['LapNumber'].between(pit_in_lap - 5, pit_in_lap - 1)]
+                    if len(past_laps) >= 3:
+                        slope = calculate_slope(past_laps)
+                        ext_result = audit_extension(driver_laps, pit_in_lap, slope, pit_loss)
+                        
+                        # 만약 특이사항이 발견되면 stint_info 덮어쓰기
+                        if ext_result:
+                            stint_info["Strategy_Verdict"] = ext_result['verdict']
+                            stint_info["Detail"] = ext_result['desc']
+        
+        stint_summary.append(stint_info)
+
+    # --- [Step 4: 최종 반환] ---
+    result_df = pd.DataFrame(stint_summary)
+    
+    print(f" [전략 감사] 총 {len(result_df)}개의 스틴트 데이터 확보.")
+    return result_df
 
 
 if __name__ == "__main__":
-    df = audit_race_strategy(2025, 'Qatar' , 'SAI')
+    df = audit_race_strategy(2025, 'Las Vegas' , 'ANT')
     print(df.to_markdown())
