@@ -17,67 +17,74 @@ def calculate_tire_degradation(year, circuit, drivers=None, session_type='R'):
     """
     드라이버별/스틴트별 타이어 마모도(연료 보정 포함) 계산
     """
-    print(f" [분석] {year} {circuit} 타이어 마모도 분석 시작...")
+    print(f" {year} {circuit} {session_type} 로딩 시도...")
     
-    # 로깅 끄기
-    fastf1.fastf1.logger.setLevel(logging.WARNING)
+    # [수정됨] 로깅 끄기 (올바른 방법)
+    logging.getLogger('fastf1').setLevel(logging.WARNING)
     
     try:
         session = fastf1.get_session(year, circuit, session_type)
         session.load(laps=True, telemetry=False, weather=False, messages=False)
+        print(f"세션 로드 완료. 드라이버 수: {len(session.drivers)}")
     except Exception as e:
-        print(f" 세션 로드 실패: {e}")
+        print(f"세션 로드 실패: {e}")
         return pd.DataFrame()
     
     if drivers is None:
+        # 상위 10명만 추리기
         drivers = session.results['Abbreviation'].iloc[:10].tolist()
         
     results = []
     
     for driver in drivers:
         try:
-            # 1. 전체 랩 (메타데이터용)
+            # 1. 전체 랩 가져오기
             all_laps = session.laps.pick_drivers(driver)
             
             for stint_id in all_laps['Stint'].unique():
                 raw_stint = all_laps[all_laps['Stint'] == stint_id]
-                if raw_stint.empty: continue
+                
+                # 타이어 정보 없는 경우 스킵
+                if raw_stint.empty or pd.isna(raw_stint['Compound'].iloc[0]): 
+                    continue
                 
                 compound = raw_stint['Compound'].iloc[0]
-                start_lap = raw_stint['LapNumber'].min()
-                end_lap = raw_stint['LapNumber'].max()
-                laps_run = len(raw_stint)
                 
-                # 2. 계산용 정제 데이터 (빠른 랩만)
-                clean_stint = raw_stint.pick_quicklaps().reset_index(drop=True)
+                # [수정됨] pick_quicklaps() 대신 좀 더 데이터 확보에 유리한 필터링 사용
+                # 'IsAccurate'가 True인 랩만 가져옵니다. (SC 상황 등 제외)
+                clean_stint = raw_stint[raw_stint['IsAccurate'] == True].reset_index(drop=True)
                 
-                if len(clean_stint) < 2:
-                    slope = 0.0
-                else:
-                    x = clean_stint['LapNumber']
-                    y = clean_stint['LapTime'].dt.total_seconds()
-                    slope, _, _, _, _ = linregress(x, y)
+                # 데이터가 너무 적으면(3랩 미만) 회귀분석 불가
+                if len(clean_stint) < 3:
+                    continue
                 
-                # 연료 보정 (일반적으로 랩당 0.03초 빨라짐을 보정)
+                x = clean_stint['LapNumber']
+                y = clean_stint['LapTime'].dt.total_seconds()
+                
+                # 선형 회귀 (기울기 계산)
+                slope, _, _, _, _ = linregress(x, y)
+                
+                # 연료 보정 (+0.03초: 차가 가벼워지는 효과 상쇄)
                 fuel_corrected_deg = slope + 0.03
                 
                 results.append({
                     "Driver": driver,
                     "Stint": int(stint_id),
                     "Compound": compound,
-                    "Laps_Run": laps_run,
-                    "Start_Lap": start_lap,
-                    "End_Lap": end_lap,
-                    "Raw_Slope": round(slope, 4),
+                    "Laps_Run": len(clean_stint),
                     "True_Degradation": round(fuel_corrected_deg, 4)
                 })
                 
         except Exception as e:
-            print(f"{driver} 분석 중 오류: {e}")
             continue
             
-    return pd.DataFrame(results)
+    # 결과 반환
+    if not results:
+        print(" 유효한 스틴트 데이터가 하나도 없음.")
+        return pd.DataFrame()
 
+    print(f" 총 {len(results)}개의 스틴트 분석 완료.")
+    return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
 # 2. 미니 섹터 지배력 분석 (Mini-Sector Dominance) for 기능 2
@@ -331,7 +338,7 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
         session = fastf1.get_session(year, circuit, session_type)
         session.load(laps=True, telemetry=False, weather=False, messages=False)
     except Exception as e:
-        print(f"❌ 데이터 로드 실패: {e}")
+        print(f" 데이터 로드 실패: {e}")
         return pd.DataFrame()
 
     # 드라이버 식별자 변환 (ANT -> 12)
