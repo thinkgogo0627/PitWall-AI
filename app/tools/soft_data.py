@@ -5,6 +5,9 @@
 
 import sys
 import os
+import logging
+from duckduckgo_search import DDGS
+
 
 # 프로젝트 루트 경로 추가 (모듈 import용)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -74,6 +77,41 @@ def search_f1_news(query: str):
     final_context = "\n---\n".join(context_list)
     
     return final_context
+
+# 로거 설정
+logger = logging.getLogger(__name__)
+
+def search_f1_news_web(query: str) -> str:
+    """
+    DuckDuckGo를 사용하여 실제 인터넷에서 F1 관련 뉴스/정보를 검색합니다.
+    최신 뉴스, 인터뷰, 기술 분석 기사 등을 찾을 때 사용됩니다.
+    """
+    print(f" [Web Search] 검색어: '{query}'")
+    
+    try:
+        results = []
+        # ddg 객체 생성 (컨텍스트 매니저 사용 권장)
+        with DDGS() as ddgs:
+            # 검색 실행 (상위 5개 결과만)
+            ddg_results = list(ddgs.text(query, max_results=5))
+            
+            for r in ddg_results:
+                title = r.get('title', 'No Title')
+                link = r.get('href', 'No Link')
+                body = r.get('body', 'No Content')
+                results.append(f"Title: {title}\nLink: {link}\nSummary: {body}\n")
+
+        if not results:
+            return "검색 결과가 없습니다."
+            
+        # 검색 결과를 하나의 텍스트로 합쳐서 반환
+        return "\n---\n".join(results)
+
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        return f"인터넷 검색 중 오류 발생: {e}"
+
+
 
 # --- 테스트 실행 (파일 직접 실행 시) ---
 if __name__ == "__main__":
