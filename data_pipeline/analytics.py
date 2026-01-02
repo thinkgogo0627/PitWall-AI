@@ -347,16 +347,17 @@ def audit_opportunity(session, driver, pit_lap, pit_loss):
 
 
 # --- [Main Wrapper] 메인 실행 함수 ---
-'''
-def audit_race_strategy(year, circuit, driver, session_type='R'):
+def audit_race_strategy(year, circuit, driver_identifier, session_type='R'):
     """
     [Hybrid Strategy Auditor]
     1. 기본: 타이어 스틴트 정보 (무조건 반환)
-    2. 심화: 피트스탑 타이밍 적절성 감사 (특이사항 있을 때만 추가)
+    2. 문맥: 피트스탑 당시 VSC/SC 여부 감지
+    3. 심화: 피트 타이밍 적절성(Late Stop/Undercut) 자동 평가
     """
-    print(f" [전략 감사] {year} {circuit} - Driver Input: {driver}")
+    logging.getLogger('fastf1').setLevel(logging.WARNING)
+    print(f"\n [Strategy Audit] {year} {circuit} - Driver: {driver_identifier}")
 
-    # --- [Step 1: 데이터 로드 및 안전장치 (Safety Net)] ---
+    # --- [Step 1: 데이터 로드 및 안전장치] ---
     try:
         session = fastf1.get_session(year, circuit, session_type)
         session.load(laps=True, telemetry=False, weather=False, messages=False)
@@ -364,91 +365,111 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
         print(f" 데이터 로드 실패: {e}")
         return pd.DataFrame()
 
-    # 드라이버 식별자 변환 (ANT -> 12)
-    target_driver = str(driver).strip()
+    # 드라이버 매핑 (이름 -> 번호)
+    target_driver = str(driver_identifier).strip()
     if target_driver not in session.drivers:
-        print(f" [Check] '{target_driver}' 드라이버 코드 재확인 중...")
         found = False
-        for d_num in session.drivers:
-            if session.get_driver(d_num)['Abbreviation'] == target_driver.upper():
-                target_driver = d_num
-                print(f"   └ 약어 매칭 성공! '{driver}' -> '{target_driver}'(No)로 변환")
+        for d in session.drivers:
+            d_info = session.get_driver(d)
+            if (d_info['Abbreviation'] == target_driver.upper()) or \
+               (target_driver.upper() in d_info['LastName'].upper()):
+                target_driver = d
+                print(f"  └ 매핑 성공: '{driver_identifier}' -> '{target_driver}'")
                 found = True
                 break
         if not found:
-            print(f" 세션에 드라이버 '{driver}'가 없습니다.")
             return pd.DataFrame()
 
     try:
-        driver_laps = session.laps.pick_drivers(target_driver)
+        driver_laps = session.laps.pick_driver(target_driver)
     except KeyError:
         return pd.DataFrame()
 
-    if driver_laps.empty:
-        return pd.DataFrame()
+    if driver_laps.empty: return pd.DataFrame()
 
-    # --- [Step 2: 기본 스틴트 분석 (The Base Meal)] ---
-    # 이 부분은 전략의 좋고 나쁨을 떠나 '팩트'를 기록합니다.
+    # --- [Step 2: 스틴트별 분석 시작] ---
     driver_laps['Stint'] = driver_laps['Stint'].fillna(0).astype(int)
     
-    stint_summary = []
-    pit_loss = get_pit_loss_time(session) # Pit loss 계산
+    # 이 서킷의 피트 로스 시간 계산 (참조용)
+    pit_loss_time = get_pit_loss_time(session)
     
-    for stint_no, stint_laps in driver_laps.groupby('Stint'):
+    stint_summary = []
+    
+    for stint_id, stint_laps in driver_laps.groupby('Stint'):
         if stint_laps.empty: continue
         
         compound = stint_laps['Compound'].iloc[0]
         laps_run = len(stint_laps)
-        start_lap = stint_laps['LapNumber'].min()
-        end_lap = stint_laps['LapNumber'].max()
-        avg_pace = stint_laps['LapTime'].mean().total_seconds()
+        start_lap = int(stint_laps['LapNumber'].min())
+        end_lap = int(stint_laps['LapNumber'].max())
         
-        # 기본 정보 저장
-        stint_info = {
-            "Stint": int(stint_no),
-            "Compound": compound,
-            "Laps_Run": int(laps_run),
-            "Start_Lap": int(start_lap),
-            "End_Lap": int(end_lap),
-            "Avg_Pace": round(avg_pace, 3) if not np.isnan(avg_pace) else 0.0,
-            "Strategy_Verdict": "-", # 기본값
-            "Detail": "Normal Stint" # 기본값
-        }
-        
-        # --- [Step 3: 심화 감사 (The Special Sauce)] ---
-        # 해당 스틴트가 끝날 때(피트인) 문제가 있었는지 체크
-        # (마지막 스틴트는 피트인을 안 하므로 제외)
-        if stint_no < driver_laps['Stint'].max():
-            pit_in_lap = end_lap # 스틴트의 마지막 랩 = 피트 인 랩
-        
-            # 1. 너무 초반/후반 아님
-            # 2. SC 상황 아님
-            if (pit_in_lap > 5) and (pit_in_lap < driver_laps['LapNumber'].max() - 2):
-                is_sc = False
-                for check_lap in range(int(pit_in_lap)-2, int(pit_in_lap)+2):
-                     if is_sc_affected(session.laps, check_lap):
-                         is_sc = True
-                         break
-                
-                if not is_sc:
-                    # 심화 분석 함수 호출 (Extension/Opportunity)
-                    # slope 계산 등 필요한 전처리
-                    past_laps = driver_laps[driver_laps['LapNumber'].between(pit_in_lap - 5, pit_in_lap - 1)]
-                    if len(past_laps) >= 3:
-                        slope = calculate_slope(past_laps)
-                        ext_result = audit_extension(driver_laps, pit_in_lap, slope, pit_loss)
-                        
-                        # 만약 특이사항이 발견되면 stint_info 덮어쓰기
-                        if ext_result:
-                            stint_info["Strategy_Verdict"] = ext_result['verdict']
-                            stint_info["Detail"] = ext_result['desc']
-        
-        stint_summary.append(stint_info)
+        # 평균 페이스 (VSC 등 느린 랩 제외)
+        clean_laps = stint_laps.pick_quicklaps()
+        if not clean_laps.empty:
+            avg_pace = clean_laps['LapTime'].dt.total_seconds().mean()
+        else:
+            avg_pace = stint_laps['LapTime'].dt.total_seconds().mean()
 
-    # --- [Step 4: 최종 반환] ---
+        # --- [Step 3: 피트 컨디션 및 타이밍 심화 분석] ---
+        # 스틴트가 끝나는 시점(=피트 인)의 상황을 분석
+        pit_condition = "Green Flag"
+        verdict = "Normal"    
+        
+        # 마지막 스틴트가 아니면 (=피트 스톱을 했다면)
+        if stint_id < driver_laps['Stint'].max():
+            # In-Lap의 트랙 상태 확인
+            in_lap_data = stint_laps.iloc[-1]
+            status_code = str(in_lap_data['TrackStatus'])
+            
+            # VSC/SC 감지 로직
+            if '4' in status_code:
+                pit_condition = "SAFETY CAR (SC)"
+                verdict = "Lucky Stop"
+                detail = f"SC 상황에서 피트인 (손실 시간 최소화)"
+            elif '6' in status_code or '7' in status_code:
+                pit_condition = "VIRTUAL SC (VSC)"
+                verdict = "Optimal Timing"
+                detail = f"VSC를 활용한 이득 (약 {int(pit_loss_time*0.4)}초 절약)"
+            elif '5' in status_code:
+                pit_condition = "RED FLAG"
+                verdict = "Free Tire Change"
+            
+            # --- [Step 4: 그린 플래그일 때 타이밍 분석 (연장/조기 여부)] ---
+            if pit_condition == "Green Flag" and laps_run > 5:
+                # 마지막 5랩의 기울기(Slope) 분석
+                last_5 = stint_laps.iloc[-5:]
+                if len(last_5) >= 3:
+                    slope = calculate_slope(last_5)
+                    # 기울기가 0.15 이상이면 랩당 0.15초씩 느려지고 있다는 뜻 (타이어 사망)
+                    if slope > 0.15:
+                        verdict = "High Deg (Late Stop)"
+                        detail = f"마지막에 페이스 급락 (+{slope:.2f}s/lap)"
+                    elif slope < 0.05:
+                         verdict = "Good Pace"
+                         detail = "타이어 상태가 양호했음 (더 달릴 수 있었음)"
+
+        # 마지막 스틴트인 경우
+        else:
+            pit_condition = "FINISH"
+            verdict = "Race End"
+
+        # 결과 저장
+        stint_summary.append({
+            "Stint": int(stint_id),
+            "Compound": compound,
+            "Laps": laps_run,
+            "Range": f"L{start_lap}-L{end_lap}",
+            "Pit_Cond": pit_condition,
+            "Avg_Pace": round(avg_pace, 3) if not np.isnan(avg_pace) else 0.0,
+            "Verdict": verdict,
+            "Note": detail
+        })
+
     result_df = pd.DataFrame(stint_summary)
     
-    print(f" [전략 감사] 총 {len(result_df)}개의 스틴트 데이터 확보.")
+    if not result_df.empty:
+        print(f" [Audit] {len(result_df)}개의 스틴트 분석 완료.")
+        
     return result_df
 '''
     
@@ -543,7 +564,7 @@ def audit_race_strategy(year, circuit, driver_identifier):
         })
 
     return pd.DataFrame(results)
-
+'''
 
 if __name__ == "__main__":
     df = audit_race_strategy(2025, 'Las Vegas' , 'ANT')

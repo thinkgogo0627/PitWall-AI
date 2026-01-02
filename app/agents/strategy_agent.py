@@ -71,19 +71,20 @@ def wrapper_audit_strategy(year: int, circuit: str, driver_identifier: str) -> s
         print(f" [Debug] 에러 발생: {error_log}")
         return f"전략 분석 중 치명적 오류 발생: {e}"
 
+
 strategy_tool = FunctionTool.from_defaults(
     fn=wrapper_audit_strategy,
     name="Race_Strategy_Auditor",
     description=
     """
     [MUST USE FOR STRATEGY]
-    사용자가 전략(Strategy) , 피트스탑(Pitstop), 타이어(Tire) 에 대해 물으면
-    다른 도구 무시하고, **무조건 이 도구 가장 먼저 실행** 해야합니다
-    드라이버의 피트스탑 타이밍이 적절했는지(Too Early/Late) 분석합니다. 인자로 드라이버 번호(숫자)가 필요합니다."""
+    [CONTAINS 2025 DATA]
+    사용자가 전략(Strategy) , 피트스탑(Pitstop), 타이어(Tire) 에 대해 물으면 다른 도구 무시하고, **무조건 이 도구 가장 먼저 실행** 해야합니다
+    드라이버의 타이어 스틴트, 피트스탑 타이밍 적절성(VSC/SC 여부), 페이스 저하(Degradation)를 한 번에 분석합니다. 인자로 드라이버 번호(숫자)가 필요합니다."""
 )
 
 
-# (3) 타이어 마모도 분석 도구
+# (5) 타이어 마모도 분석 도구
 def wrapper_tire_deg(year: int, circuit: str) -> str:
     try:
         df = calculate_tire_degradation(year, circuit)
@@ -97,7 +98,7 @@ tire_tool = FunctionTool.from_defaults(
     description="해당 경기에서 타이어 컴파운드(Soft, Medium, Hard)별 마모도와 성능 저하(Degradation) 추이를 분석합니다."
 )
 
-# (4) 미니 섹터 분석 도구
+# (6) 미니 섹터 분석 도구
 def wrapper_mini_sector(year: int, circuit: str) -> str:
     try:
         _, summary_text = mini_sector_dominance_analyze(year, circuit)
@@ -163,7 +164,8 @@ def build_strategy_agent():
 
     """
     
-    tools = [sql_tool, strategy_tool, tire_tool, sector_tool]
+    tools = [sql_tool, strategy_tool,
+            tire_tool, sector_tool]
     
     system_prompt = f"""
     당신은 F1 팀의 수석 전략 엔지니어(Chief Strategy Officer)입니다.
@@ -232,7 +234,7 @@ async def run_strategy_agent(user_msg: str):
 if __name__ == "__main__":
     async def test():
         print(" Strategy Agent Initialized. (Test Mode)")
-        q = "2025년 라스베이거스에서 안토넬리(12번)의 전략을 분석해줘. 피트스톱 타이밍도 분석해."
+        q = "2025년 라스베이거스에서 안토넬리(12번)의 전략을 분석해줘. 타이어 전략과 피트스톱 타이밍도 분석해." 
         print(f"\nUser: {q}")
         
         try:
