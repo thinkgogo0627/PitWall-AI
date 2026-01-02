@@ -6,9 +6,31 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import linregress
 import logging
+import os
 
 # 전역 설정
 fastf1.plotting.setup_mpl(misc_mpl_mods=False)
+
+# 현재 폴더
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 프로젝트 루트
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)# data_pipeline 폴더
+
+CACHE_DIR = os.path.join(PROJECT_ROOT, 'data', 'cache')   # ../app/cache 로 이동
+
+# --- [2. FastF1 캐시 설정] ---
+# 폴더가 없으면 생성 (안전장치)
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    print(f" 캐시 폴더가 없어서 생성했습니다: {CACHE_DIR}")
+
+# FastF1에게 데이터 가져오기 선어
+try:
+    fastf1.Cache.enable_cache(CACHE_DIR)
+    print(f" FastF1 Cache Enabled at: {CACHE_DIR}")
+except Exception as e:
+    print(f" FastF1 Cache 설정 실패: {e}")
 
 # -----------------------------------------------------------------------------
 # 1. 타이어 마모도 분석 (Tire Degradation)
@@ -325,13 +347,14 @@ def audit_opportunity(session, driver, pit_lap, pit_loss):
 
 
 # --- [Main Wrapper] 메인 실행 함수 ---
+'''
 def audit_race_strategy(year, circuit, driver, session_type='R'):
     """
     [Hybrid Strategy Auditor]
     1. 기본: 타이어 스틴트 정보 (무조건 반환)
     2. 심화: 피트스탑 타이밍 적절성 감사 (특이사항 있을 때만 추가)
     """
-    print(f"⚙️ [전략 감사] {year} {circuit} - Driver Input: {driver}")
+    print(f" [전략 감사] {year} {circuit} - Driver Input: {driver}")
 
     # --- [Step 1: 데이터 로드 및 안전장치 (Safety Net)] ---
     try:
@@ -344,7 +367,7 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
     # 드라이버 식별자 변환 (ANT -> 12)
     target_driver = str(driver).strip()
     if target_driver not in session.drivers:
-        print(f"⚠️ [Check] '{target_driver}' 드라이버 코드 재확인 중...")
+        print(f" [Check] '{target_driver}' 드라이버 코드 재확인 중...")
         found = False
         for d_num in session.drivers:
             if session.get_driver(d_num)['Abbreviation'] == target_driver.upper():
@@ -397,8 +420,7 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
         # (마지막 스틴트는 피트인을 안 하므로 제외)
         if stint_no < driver_laps['Stint'].max():
             pit_in_lap = end_lap # 스틴트의 마지막 랩 = 피트 인 랩
-            
-            # 님이 만드신 엄격한 조건 체크
+        
             # 1. 너무 초반/후반 아님
             # 2. SC 상황 아님
             if (pit_in_lap > 5) and (pit_in_lap < driver_laps['LapNumber'].max() - 2):
@@ -428,6 +450,99 @@ def audit_race_strategy(year, circuit, driver, session_type='R'):
     
     print(f" [전략 감사] 총 {len(result_df)}개의 스틴트 데이터 확보.")
     return result_df
+'''
+    
+def audit_race_strategy(year, circuit, driver_identifier):
+    """
+    특정 드라이버의 랩타임/피트스탑 전략 분석 (VSC/SC 감지 + 드라이버 매핑 포함)
+    """
+    logging.getLogger('fastf1').setLevel(logging.WARNING)
+    
+    try:
+        session = fastf1.get_session(year, circuit, 'R')
+        session.load(laps=True, telemetry=False, weather=False, messages=False)
+    except Exception as e:
+        print(f"세션 로드 실패: {e}")
+        return pd.DataFrame()
+    
+    # 1. [Driver Mapping] 사용자 입력(ANT, Antonelli)을 차량 번호('12')로 변환
+    target_driver = str(driver_identifier).strip()
+    
+    # 입력값이 숫자가 아니거나, 세션 드라이버 목록에 바로 없을 때 검색
+    if target_driver not in session.drivers:
+        print(f" [Check] '{target_driver}' 드라이버 코드 매핑 시도...")
+        found = False
+        
+        # 전체 드라이버 루프 돌면서 Abbreviation(약어)나 LastName 확인
+        for d_num in session.drivers:
+            d_info = session.get_driver(d_num)
+            # 약어(ANT) 또는 성(Antonelli) 매칭
+            if (d_info['Abbreviation'] == target_driver.upper()) or \
+               (target_driver.upper() in d_info['LastName'].upper()):
+                target_driver = d_num
+                print(f"   └ 매칭 성공! '{driver_identifier}' -> '{target_driver}' (No)")
+                found = True
+                break
+        
+        if not found:
+            print(f"   └ 실패: 세션에서 드라이버 '{driver_identifier}'를 찾을 수 없습니다.")
+            return pd.DataFrame() # 빈 데이터 반환 -> Agent가 '데이터 없음' 처리
+
+    # 2. 랩 데이터 추출
+    try:
+        driver_laps = session.laps.pick_driver(target_driver)
+    except KeyError:
+        return pd.DataFrame()
+
+    if driver_laps.empty:
+        return pd.DataFrame()
+
+    results = []
+    driver_laps['Stint'] = driver_laps['Stint'].fillna(0).astype(int)
+    
+    for stint_id in driver_laps['Stint'].unique():
+        stint = driver_laps[driver_laps['Stint'] == stint_id]
+        if stint.empty: continue
+        
+        compound = stint['Compound'].iloc[0]
+        start_lap = stint['LapNumber'].min()
+        end_lap = stint['LapNumber'].max()
+        laps_run = len(stint)
+        
+        # 3. [SC/VSC Logic] 피트 인(In-Lap) 당시 상황 파악
+        # 해당 스틴트의 마지막 랩 (피트로 들어가는 랩)
+        in_lap_data = stint.iloc[-1]
+        track_status = str(in_lap_data['TrackStatus']) 
+        
+        # 상태 코드 해석
+        pit_condition = "Green Flag"
+        if '4' in track_status:
+            pit_condition = " SAFETY CAR (SC)"
+        elif '6' in track_status or '7' in track_status:
+            pit_condition = " VIRTUAL SAFETY CAR (VSC)"
+        elif '5' in track_status:
+             pit_condition = "RED FLAG"
+        elif '2' in track_status:
+            pit_condition = "Yellow Flag"
+        
+        # 평균 페이스
+        clean_laps = stint.pick_quicklaps()
+        if len(clean_laps) > 0:
+            avg_pace = clean_laps['LapTime'].dt.total_seconds().mean()
+        else:
+            avg_pace = stint['LapTime'].dt.total_seconds().mean()
+            
+        results.append({
+            "Stint": int(stint_id),
+            "Compound": compound,
+            "Laps_Run": laps_run,
+            "Start_Lap": start_lap,
+            "End_Lap": end_lap,
+            "Pit_Condition": pit_condition,  # ★ LLM이 이걸 보고 "VSC라서 들어갔군" 판단함
+            "Avg_Pace": round(avg_pace, 3)
+        })
+
+    return pd.DataFrame(results)
 
 
 if __name__ == "__main__":

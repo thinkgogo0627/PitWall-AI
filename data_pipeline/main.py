@@ -26,7 +26,7 @@ def run_pipeline():
             print(f"  └ 🇬🇧 Autosport: {len(df_en)}건")
             all_data.append(df_en)
     except Exception as e:
-        print(f"  └ ⚠️ Autosport 실패: {e}")
+        print(f"  └  Autosport 실패: {e}")
 
     # 3. FIA 규정집 (옵션: 필요할 때만 켜기)
     # 매번 긁으면 오래 걸리니까 일단 주석 처리하거나 플래그로 관리
@@ -35,10 +35,10 @@ def run_pipeline():
         try:
             df_fia = FIA_reg.crawl(doc_type="sporting")
             if not df_fia.empty:
-                print(f"  └ 📜 FIA Docs: {len(df_fia)}건")
+                print(f"  └  FIA Docs: {len(df_fia)}건")
                 all_data.append(df_fia)
         except Exception as e:
-            print(f"  └ ⚠️ FIA Docs 실패: {e}")
+            print(f"  └  FIA Docs 실패: {e}")
 
 
     # 4. race_strat 수집

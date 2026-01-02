@@ -1,0 +1,10 @@
+# .dockerignore
+__pycache__
+*.pyc
+.git
+.gitignore
+.env
+venv/
+.streamlit/
+app/cache/
+data/f1_data.db

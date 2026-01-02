@@ -9,9 +9,11 @@ import sys
 import os
 from dotenv import load_dotenv
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.abspath(os.path.join(current_dir, '../../'))
-env_path = os.path.join(root_dir, '.env')
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
+env_path = os.path.join(PROJECT_ROOT, '.env')
+DB_FILE_PATH = os.path.join(PROJECT_ROOT, 'data', 'f1_data.db')
+
 
 # .env 로드 실행
 if os.path.exists(env_path):
@@ -21,6 +23,9 @@ else:
     print(f" .env 파일을 찾을 수 없습니다: {env_path}")
 
 api_key = os.getenv("GOOGLE_API_KEY")
+
+# 시스템 경로에 프로젝트 루트 추가
+sys.path.append(PROJECT_ROOT)
 
 from sqlalchemy import create_engine
 from llama_index.core import SQLDatabase
@@ -35,7 +40,7 @@ Settings.embed_model = HuggingFaceEmbedding(
     device="cuda" # GPU 없으면 "cpu"
 )
 
-Settings.llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
+Settings.llm = GoogleGenAI(model="models/gemini-2.5-pro", api_key=api_key)
 
 
 # 프로젝트 루트 경로 추가
@@ -43,8 +48,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 
 # 1. DB 연결 (SQLAlchemy Engine 사용)
 # SQLite 파일 경로 지정
-db_path = f"sqlite:///{os.path.join(root_dir, 'data/f1_data.db')}"
-engine = create_engine(db_path)
+db_connection_str = f"sqlite:///{DB_FILE_PATH}"
+engine = create_engine(db_connection_str)
 sql_database = SQLDatabase(engine, include_tables=["race_results", "lap_times", "weather_data"])
 
 
@@ -61,6 +66,49 @@ combined_prompt_str = """
 4. **IsAccurate 컬럼은 Boolean 타입입니다. (1=True, 0=False)**
    - 올바른 예: WHERE IsAccurate = 1
    - 틀린 예: WHERE IsAccurate = 'True'
+5. **'No' 혹은 'CarNumber' 컬럼은 존재하지 않습니다.** 절대 SELECT 하지 마세요.
+5-5. [Driver Numbers Reference, (드라이버 이름, 약어) - 차량 번호]
+
+    - Max Verstappen (막스 베르스타펜, VER): 1
+
+    - Yuki Tsunoda (유키 츠노다, TSU): 22
+
+    - Lando Norris (랜도 노리스, NOR): 4
+
+    - Oscar Piastri (오스카 피아스트리, PIA): 81
+
+    - Lewis Hamilton (루이스 해밀턴, HAM): 44
+
+    - Charles Leclerc (샤를 르클레르, LEC): 16
+
+    - George Russell (조지 러셀, RUS): 63
+
+    - Kimi Antonelli (키미 안토넬리, ANT): 12  
+
+    - Liam Lawson (리암 로슨, LAW): 30
+
+    - Isack Hadjar (아이작 하자르, HAD): 6
+
+    - Gabriel Bortoleto (가브리엘 보톨레토, BOR): 5
+
+    - Nico Hülkenberg (니코 훌켄베르크, HUL): 27
+
+    - Franco Colapinto (프랑코 콜라핀토, COL): 43
+
+    - Pierre Gasly (피에르 가슬리, GAS): 10
+
+    - Alex Albon (알렉스 알본, ALB): 23
+
+    - Carlos Sainz (카를로스 사인츠, SAI): 55
+
+    - Lance Stroll (랜스 스트롤, STR): 18
+
+    - Fernando Alonso (페르난도 알론소, ALO): 14
+
+    - Esteban Ocon (에스테반 오콘, OCO): 31
+
+    - Olliver Bearman (올리버 베어만, BEA): 87
+6. 드라이버 식별은 오직 `Driver` 약어로만 하세요 (LIKE %ANT%) , (LIKE %RUS%)
 
    
 [테이블 정보]
@@ -192,4 +240,4 @@ if __name__ == "__main__":
     
     # 테스트 2: 복잡한 쿼리 (님의 퓨샷 로직 확인)
     print("\n" + "="*30 + "\n")
-    print(analyze_race_data("라스베가스 GP에서 타이어별 평균 랩타임은?"))
+    print(analyze_race_data("2025 라스베가스 GP에서 타이어별 평균 랩타임은?"))
