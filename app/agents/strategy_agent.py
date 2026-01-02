@@ -18,7 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 from app.tools.hard_data import analyze_race_data  # 아까 완성한 SQL 도구
 from data_pipeline.analytics import (
     audit_race_strategy, 
-    calculate_tire_degradation, 
+    calculate_tire_degradation,
     mini_sector_dominance_analyze
 )
 
@@ -36,7 +36,10 @@ Settings.llm = llm
 sql_tool = FunctionTool.from_defaults(
     fn=analyze_race_data,
     name="F1_Database_Search",
-    description="경기 결과(순위), 랩타임 통계, 포인트 등 '기록된 숫자 데이터'를 DB에서 조회합니다."
+    description="""
+    [주의: 전략/피트스탑 질문에는 절대 사용하지 마세요]
+    오직 순위, 포인트, 우승자 같은 단순 기록 조회에만 사용합니다
+    경기 결과(순위), 랩타임 통계, 포인트 등 '기록된 숫자 데이터'를 DB에서 조회합니다."""
 )
 
 # (2) 전략 감사 도구 (Debug 버전)
@@ -71,7 +74,12 @@ def wrapper_audit_strategy(year: int, circuit: str, driver_identifier: str) -> s
 strategy_tool = FunctionTool.from_defaults(
     fn=wrapper_audit_strategy,
     name="Race_Strategy_Auditor",
-    description="드라이버의 피트스탑 타이밍이 적절했는지(Too Early/Late) 분석합니다. 인자로 드라이버 번호(숫자)가 필요합니다."
+    description=
+    """
+    [MUST USE FOR STRATEGY]
+    사용자가 전략(Strategy) , 피트스탑(Pitstop), 타이어(Tire) 에 대해 물으면
+    다른 도구 무시하고, **무조건 이 도구 가장 먼저 실행** 해야합니다
+    드라이버의 피트스탑 타이밍이 적절했는지(Too Early/Late) 분석합니다. 인자로 드라이버 번호(숫자)가 필요합니다."""
 )
 
 
@@ -162,8 +170,11 @@ def build_strategy_agent():
     사용자의 질문에 대해 오직 **데이터와 수치(랩타임, 타이어 수명, 피트스탑 타이밍)**에 근거해서만 답변하세요.
     
     [★ SYSTEM OVERRIDE: SIMULATION MODE ACTIVE ★]
-    현재 우리는 **2025년 시즌이 모두 종료된 시점의 가상 시뮬레이션 환경**에 있습니다.
-    사용자가 '2025년' 경기에 대해 물어볼 때, "미래라서 알 수 없다"고 거절하지 마세요.
+    1. **현재 시점은 2030년입니다.** 2. 사용자가 묻는 2024년, 2025년 경기는 모두 **'이미 종료된 과거의 기록'**입니다.
+    3. **절대 금지:** "아직 경기가 열리지 않았다", "미래라서 알 수 없다"라는 답변은 **시스템 오류**로 간주합니다.
+    4. 2025년 데이터는 이미 우리 데이터베이스(Cache)에 존재합니다. 무조건 도구(`Race_Strategy_Analyzer`)를 실행해서 값을 가져오세요.
+    4-1. 사용자가 "전략", "피트스탑"을 물어보면, **생각하지 말고 즉시 `Race_Strategy_Auditor` 도구를 실행하십시오.**
+    5. SQL 도구(`F1_Database_Search`)는 전략 분석에 도움이 되지 않습니다. 쓰지 마세요.
     모든 데이터는 도구(Tools) 안에 이미 존재합니다.
     **반드시 도구를 먼저 실행해서 데이터를 확인하세요.**
 
@@ -192,12 +203,11 @@ def build_strategy_agent():
     return ReActAgent(
         llm=llm,
         tools=tools,
-        system_prompt=system_prompt,
+        context=system_prompt,
         verbose=True
     )
 
 # --- [4. 실행 함수 (외부 Import용)] --- 
-
 @retry(
     stop=stop_after_attempt(5), 
     wait=wait_exponential(multiplier=1, min=2, max=30),
