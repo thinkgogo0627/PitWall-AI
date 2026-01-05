@@ -78,6 +78,7 @@ combined_prompt_str = """
     - 모나코 : RaceID LIKE %Monaco%
     - 스페인 : RaceID LIKE %Spanish%
     - 오스트리아: RaceID LIKE %Austrian%
+    - 포르투갈: RaceID LIKE %Portuguese%
     - 캐나다 : RaceID LIKE %Canadian%
     - 영국, 실버스톤 : RaceID LIKE %British%
     - 벨기에 : RaceID LIKE %Belgian%

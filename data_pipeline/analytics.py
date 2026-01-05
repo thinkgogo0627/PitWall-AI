@@ -286,64 +286,126 @@ def audit_extension(driver_laps, pit_lap, slope, pit_loss):
     """
     Case A: 실제 피트인 (Reality)
     Case B: 3랩 더 버팀 (Ghost Stay Out)
-    -> Case B가 더 빠르면 'Too Early' 판정
+    -> 비교: (Ghost 주행 시간 + 나중에 치를 Pit Loss) vs (실제 주행 시간)
     """
-    # Case A: 실제 피트 아웃 후 3랩 (OutLap + 2 Flying)
-    real_next_laps = driver_laps[driver_laps['LapNumber'].between(pit_lap, pit_lap + 3)]
-    if len(real_next_laps) < 4: return None
+    # 1. 실제 데이터: 피트 아웃 후 3랩 데이터 확보 (OutLap + 2 Flying)
+    # pit_lap은 In-Lap이므로, 그 다음 랩부터가 '피트 스톱 이후의 시간'입니다.
+    # 하지만 비교를 위해 'In-Lap' 시점부터 계산하는 것이 타임라인상 맞습니다.
+    # 여기서는 "피트 랩 포함 향후 3랩"을 비교하겠습니다.
     
-    # 실제 소요 시간 (피트 로스 포함된 기록들)
+    real_next_laps = driver_laps[driver_laps['LapNumber'].between(pit_lap, pit_lap + 3)]
+    
+    # 데이터가 부족하면(경기 종료 직전 등) 분석 불가
+    if len(real_next_laps) < 2: return None
+    
+    # 비교할 랩 수 동기화 (실제 데이터가 2랩뿐이면 가상도 2랩만 돌려야 함)
+    n_laps_to_compare = len(real_next_laps)
+    
+    # Case A: 실제 소요 시간 (In-Lap + Out-Lap + Flying...)
     time_actual = real_next_laps['LapTime'].dt.total_seconds().sum()
     
-    # Case B: 가상 스테이 아웃 3랩
-    # 공식: (직전 랩타임 + slope) * 3
-    last_lap_time = driver_laps[driver_laps['LapNumber'] == pit_lap - 1]['LapTime'].dt.total_seconds().iloc[0]
+    # Case B: 가상 스테이 아웃 (Ghost)
+    # 피트 직전 랩(Old Tyre)의 기록을 기준으로 slope(데그라데이션)만큼 느려짐
+    prev_lap = driver_laps[driver_laps['LapNumber'] == pit_lap - 1]
+    if prev_lap.empty: return None
+    
+    last_lap_time = prev_lap['LapTime'].dt.total_seconds().iloc[0]
     
     time_ghost_drive = 0
     current_pred = last_lap_time
-    for _ in range(4): # 피트랩 포함 4랩
-        current_pred += slope
+    
+    for _ in range(n_laps_to_compare):
+        current_pred += slope  # 랩당 slope초만큼 느려짐 (Degradation)
         time_ghost_drive += current_pred
         
-    # 비교: (고스트 주행 시간 + 나중 피트 로스) vs (실제 주행 시간)
-    # *주의: 고스트는 나중에라도 피트를 해야 하므로, 공정한 비교를 위해 Pit Loss를 더해줌
+    # 비교: (고스트 주행 시간 + 나중에 해야 할 Pit Loss) vs (이미 피트한 실제 시간)
+    # *주의: 고스트도 언젠간 피트를 해야 하므로, 공정한 비교를 위해 Pit Loss를 더해줌
     time_ghost_total = time_ghost_drive + pit_loss
     
     diff = time_actual - time_ghost_total
     
-    # diff가 양수(+)면 실제(Actual)가 더 오래 걸림 -> 스테이 아웃(Ghost)이 이득 -> "Too Early"
-    # diff가 음수(-)면 실제(Actual)가 더 빠름 -> 피트인이 이득 -> "Good Timing"
+    # diff > 0: 실제(Actual)가 더 오래 걸림 -> "더 버티는 게 빨랐다" (Too Early)
+    # diff < 0: 실제(Actual)가 더 빠름 -> "피트하길 잘했다" (Good Timing)
+    
+    verdict = "Good Timing"
+    desc = "적절한 시점에 피트인했습니다."
+    
+    if diff > 2.0: # 2초 이상 차이면 명확한 실수
+        verdict = "Too Early (Loss)"
+        desc = f"더 버텼어야 합니다. 약 {diff:.1f}초 손해 예상."
+    elif diff < -2.0:
+        verdict = "Great Call"
+        desc = f"타이어가 죽기 직전 완벽하게 들어왔습니다. ({abs(diff):.1f}초 이득)"
+
     return {
-        "verdict": "Too Early" if diff > 1.0 else "Good Timing",
-        "time_diff": round(diff, 3), # 양수면 손해 본 초(Seconds)
-        "desc": f"3랩 더 버텼다면 {abs(round(diff, 2))}초 {'이득' if diff > 0 else '손해'} 예상"
+        "verdict": verdict,
+        "time_diff": round(diff, 3),
+        "desc": desc
     }
 
 # --- [Target 2] 공격 기회 판정 (일찍/늦게 들어갔다면?) ---
 def audit_opportunity(session, driver, pit_lap, pit_loss):
     """
-    가상 시나리오: 1랩 일찍 들어갔다면(Undercut) 앞차를 잡았을까?
+    가상 시나리오: 내 앞차(Rival)는 누구였으며, 언더컷 기회가 있었나?
     """
-    # 1. 내 앞차(Rival) 찾기 (피트인 2랩 전 기준)
-    lap_check = pit_lap - 2
-    drivers = session.drivers
-    
-    my_pos = session.laps.pick_drivers(driver).pick_lap(lap_check)['Position'].iloc[0]
-    if my_pos == 1:
-        return {"verdict": "Leader", "desc": "1위 주행 중 (추월 대상 없음)"}
+    try:
+        # 1. 기준 랩 설정 (피트인 1~2랩 전의 순위 확인)
+        lap_check = int(pit_lap) - 1
+        if lap_check < 1: return {}
+
+        # 2. 해당 랩의 전체 드라이버 순위표 가져오기
+        laps_at_check = session.laps.pick_lap(lap_check)
         
-    # 앞차 찾기 (Position이 내 앞인 사람)
-    # (MVP에서는 간단히 순위만 보지만, 실제로는 Gap 데이터를 봐야 함)
-    # FastF1에서 앞차를 특정하기 까다로우므로, 여기서는 로직을 간소화:
-    # "내가 1랩 일찍 들어갔으면(Outlap이 2초 빠름), 피트 전 랩타임(Old Tyre)보다 얼마나 이득인가?"
-    
-    # 가정: 새 타이어(Undercut)는 헌 타이어보다 랩당 약 2.0초 빠르다 (서킷마다 다름)
-    undercut_gain = 2.0 
-    
-    return {
-        "verdict": "Check Undercut",
-        "desc": f"1랩 일찍 들어갔다면 약 {undercut_gain}초 이득 예상 (트래픽 고려 안 함)"
-    }
+        # 3. 내 데이터 찾기
+        # pick_driver가 최신 버전에서는 리스트를 반환할 수 있으므로 안전하게 필터링
+        my_row = laps_at_check[laps_at_check['Driver'] == driver]
+        if my_row.empty: 
+            # 드라이버 번호(Number)로 되어있을 수 있으므로 다시 확인
+             my_row = laps_at_check[laps_at_check['DriverNumber'] == str(driver)]
+        
+        if my_row.empty: return {} # 데이터 없음
+
+        my_pos = my_row['Position'].iloc[0]
+        
+        # 4. 1위면 앞차가 없음
+        if my_pos == 1:
+            return {"verdict": "Leader", "desc": "현재 선두입니다. (추월 대상 없음)"}
+        
+        # 5. [수정됨] 앞차(Rival) 찾기 로직
+        # 내 앞 순위(Position - 1)인 드라이버 검색
+        rival_row = laps_at_check[laps_at_check['Position'] == (my_pos - 1)]
+        
+        if rival_row.empty:
+            return {"verdict": "Unknown Rival", "desc": "앞차 데이터를 찾을 수 없습니다."}
+            
+        rival_driver = rival_row['Driver'].iloc[0] # 예: 'HAM', 'VER'
+        
+        # 6. 앞차와의 간격 (Gap) 확인
+        # FastF1에서는 실시간 Gap 계산이 복잡하므로, 
+        # TimeDiff(선두와의 차이) 끼리 뺄셈하여 근사치 계산
+        my_time = my_row['Time'].iloc[0]
+        rival_time = rival_row['Time'].iloc[0]
+        gap_to_rival = (my_time - rival_time).total_seconds()
+        
+        # 7. 언더컷 성공 가능성 판단
+        # 일반적인 언더컷 게인: OutLap이 헌 타이어보다 약 1.5~2.5초 빠름
+        undercut_potential = 2.0 
+        
+        # 만약 갭이 언더컷 게인보다 작다면? -> 뒤집을 수 있었다!
+        if 0 < gap_to_rival < undercut_potential:
+            return {
+                "verdict": "Undercut Chance!",
+                "desc": f"앞차({rival_driver})와 {gap_to_rival:.1f}초 차이. 1랩 일찍 들어갔다면 추월 가능성 높음."
+            }
+        else:
+            return {
+                "verdict": "Stay Out",
+                "desc": f"앞차({rival_driver})와 {gap_to_rival:.1f}초 차이. 언더컷하기엔 거리가 멉니다."
+            }
+
+    except Exception as e:
+        # print(f"오퍼튜니티 분석 에러: {e}") # 디버깅용
+        return {}
 
 
 # --- [Main Wrapper] 메인 실행 함수 ---
