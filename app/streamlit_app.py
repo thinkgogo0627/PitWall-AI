@@ -48,7 +48,7 @@ with st.sidebar:
     각 탭은 독립된 대화 세션을 가집니다.
     """)
     st.divider()
-    st.caption("Powered by Gemini 1.5 & FastF1")
+    st.caption("Powered by Gemini 2.5 & FastF1")
 
 
 # --- [4. 세션 상태 초기화 (대화방 분리)] ---
