@@ -67,7 +67,32 @@ combined_prompt_str = """
    - 올바른 예: WHERE IsAccurate = 1
    - 틀린 예: WHERE IsAccurate = 'True'
 5. **'No' 혹은 'CarNumber' 컬럼은 존재하지 않습니다.** 절대 SELECT 하지 마세요.
-5-5. [Driver Numbers Reference, (드라이버 이름, 약어) - 차량 번호]
+5-1. 그랑프리 장소 질문에 따른 RaceID 장소 참조입니다. 반드시 이 형태를 사용하여 쿼리를 만드세요
+    - 오스트레일리아, 호주 : RaceID LIKE %Australian%
+    - 중국 : RaceID LIKE %Chinese%
+    - 일본, 스즈카 : RaceID LIKE %Japanese%
+    - 사우디아라비아, 사우디 : RaceID LIKE %Saudi_Arabian%
+    - 바레인 : RaceID LIKE %Bahrain%
+    - 마이애미 : RaceID LIKE %Miami%
+    - 에밀리아 로마냐 : RaceID LIKE %Emilia_Romagna%
+    - 모나코 : RaceID LIKE %Monaco%
+    - 스페인 : RaceID LIKE %Spanish%
+    - 오스트리아: RaceID LIKE %Austrian%
+    - 캐나다 : RaceID LIKE %Canadian%
+    - 영국, 실버스톤 : RaceID LIKE %British%
+    - 벨기에 : RaceID LIKE %Belgian%
+    - 헝가리 : RaceID LIKE %Hungarian%
+    - 네덜란드 : RaceID LIKE %Dutch%
+    - 이탈리아, 몬차 : RaceID LIKE %Italian%
+    - 아제르바이잔, 바쿠 : RaceID LIKE %Azerbaijan%
+    - 싱가포르 : RaceID LIKE %Singapore%
+    - 미국, 오스틴 : RaceID LIKE %United_States%
+    - 브라질, 상파울루 : RaceID LIKE %São_Paulo%
+    - 라스베가스 : RaceID LIKE %Las_Vegas%
+    - 카타르 : RaceID LIKE %Qatar%
+    - 아부다비 : RaceID LIKE %Abu_Dhabi%
+
+5-2. [Driver Numbers Reference, (드라이버 이름, 약어) - 차량 번호]
 
     - Max Verstappen (막스 베르스타펜, VER): 1
 
