@@ -33,6 +33,7 @@ try:
     from app.agents.strategy_agent import run_strategy_agent
     from app.agents.circuit_agent import run_circuit_agent
     from app.agents.briefing_agent import run_briefing_agent
+    from app.agents.tactic_simulation_agent import run_simulation_agent
 except ImportError as e:
     st.error(f"에이전트 모듈 로드 실패: {e}")
     st.stop()
@@ -57,7 +58,8 @@ if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = {
         "Strategy": [],
         "Circuit": [],
-        "Briefing": []
+        "Briefing": [],
+        "Simulation": []
     }
 
 # --- [5. 메인 로직 함수화] ---
@@ -99,7 +101,7 @@ def render_tab_content(mode_name, agent_func, description):
 st.title("PitWall AI")
 
 # 탭 생성
-tab1, tab2, tab3 = st.tabs(["레이스 전략 (Strategy)", "서킷 가이드 (Circuit)", "경기 브리핑 (Briefing)"])
+tab1, tab2, tab3, tab4 = st.tabs(["레이스 전략 (Strategy)", "서킷 가이드 (Circuit)", "경기 브리핑 (Briefing)", "배틀, 피트인 시뮬레이션 (Simulation)"])
 
 # 각 탭 내부에서 함수 호출
 with tab1:
@@ -123,6 +125,12 @@ with tab3:
         "경기 결과 요약, 리타이어 원인, 주요 이슈 등 '뉴스와 팩트'를 브리핑합니다."
     )
 
+with tab4:
+    render_tab_content(
+        "Simulation",
+        run_simulation_agent,
+        "드라이버 간 피트 인 전략 분석, 언더컷 성공 여부, 스틴트 연장 손익을 시뮬레이션합니다"
+    )
 # --- [7. 하단 풋터] ---
 st.divider()
-st.caption("Data sources: FastF1 (Telemetry), DuckDuckGo (News), Gemini 1.5 (Reasoning)")
+st.caption("Data sources: FastF1 (Telemetry), DuckDuckGo (News), Gemini 2.5 (Reasoning)")
