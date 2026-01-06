@@ -280,6 +280,45 @@ def get_pit_loss_time(session):
         return 22.0
 
 
+# 특정 레이스에서 특정 드라이버의 피트 로스 타임 계산 로직 (위 함수와 다름)
+def get_specific_pit_loss(driver_laps, pit_lap, avg_track_pit_loss=22.0):
+    """
+    해당 드라이버가 실제 피트 스톱에서 소비한 시간을 계산합니다.
+    (In-Lap + Out-Lap) - (정상 주행 2랩 예상 시간)
+    """
+    try:
+        # In-Lap과 Out-Lap 가져오기
+        in_lap_row = driver_laps[driver_laps['LapNumber'] == pit_lap]
+        out_lap_row = driver_laps[driver_laps['LapNumber'] == pit_lap + 1]
+        
+        if in_lap_row.empty or out_lap_row.empty:
+            return avg_track_pit_loss # 데이터 없으면 평균값 리턴
+
+        in_time = in_lap_row['LapTime'].dt.total_seconds().iloc[0]
+        out_time = out_lap_row['LapTime'].dt.total_seconds().iloc[0]
+        
+        # 정상 주행(Flying Lap) 기준 시간 구하기 (피트 전후 3랩 제외하고 중간값)
+        # 만약 데이터가 너무 없으면 그냥 전체 랩의 중간값
+        clean_laps = driver_laps.pick_quicklaps()
+        if clean_laps.empty:
+             ref_pace = avg_track_pit_loss / 2 # 비상용 임시값
+        else:
+             ref_pace = clean_laps['LapTime'].dt.total_seconds().median()
+
+        # 실제 로스 계산
+        actual_loss = (in_time + out_time) - (2 * ref_pace)
+        
+        # 이상치 처리 (VSC 등으로 40초 넘어가면 그냥 평균값 사용하거나, VSC 감지 로직 필요)
+        # 여기서는 단순하게 10초~40초 사이일 때만 유효하다고 가정
+        if 10 < actual_loss < 45:
+            return round(actual_loss, 2)
+        else:
+            return avg_track_pit_loss
+
+    except Exception:
+        return avg_track_pit_loss
+
+
 
 # --- [Target 1] 조기 피트인 판정 (더 버티는 게 나았나?) ---
 def audit_extension(driver_laps, pit_lap, slope, pit_loss):
