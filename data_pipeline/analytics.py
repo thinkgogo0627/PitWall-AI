@@ -382,69 +382,93 @@ def audit_extension(driver_laps, pit_lap, slope, pit_loss):
         "desc": desc
     }
 
-# --- [Target 2] 공격 기회 판정 (일찍/늦게 들어갔다면?) ---
-def audit_opportunity(session, driver, pit_lap, pit_loss):
+
+def audit_opportunity(session, driver_id, pit_lap, my_actual_loss):
     """
-    가상 시나리오: 내 앞차(Rival)는 누구였으며, 언더컷 기회가 있었나?
+    [정밀 분석] 언더컷 시뮬레이션
+    :param my_actual_loss: get_specific_pit_loss()로 계산된 내 실제 피트 소요 시간
+
+     Net Margin = 라이벌과의 갭 - (언더컷 이득) + (피트 로스 delta)
+    - 라이벌과의 갭: 피트 인 직전의 라이벌과의 시간 차이
+    - 언더컷 이듯: (라이벌의 현 타이어 랩터임) - (나의 새 타이어 아웃랩 환산 기록)
+    - 피트 로스 델타: (나의 피트로스) - (라이벌의 피트로스)
     """
     try:
-        # 1. 기준 랩 설정 (피트인 1~2랩 전의 순위 확인)
+        # 1. 기준 랩 (In-Lap 직전) 데이터 로드
         lap_check = int(pit_lap) - 1
-        if lap_check < 1: return {}
-
-        # 2. 해당 랩의 전체 드라이버 순위표 가져오기
         laps_at_check = session.laps.pick_lap(lap_check)
         
-        # 3. 내 데이터 찾기
-        # pick_driver가 최신 버전에서는 리스트를 반환할 수 있으므로 안전하게 필터링
-        my_row = laps_at_check[laps_at_check['Driver'] == driver]
+        # 2. 내 정보 및 라이벌 식별
+        # driver_id 처리 (str/int 호환)
+        my_row = laps_at_check[laps_at_check['Driver'] == str(driver_id)]
         if my_row.empty: 
-            # 드라이버 번호(Number)로 되어있을 수 있으므로 다시 확인
-             my_row = laps_at_check[laps_at_check['DriverNumber'] == str(driver)]
+             my_row = laps_at_check[laps_at_check['DriverNumber'] == str(driver_id)]
         
-        if my_row.empty: return {} # 데이터 없음
+        if my_row.empty: return {}
 
         my_pos = my_row['Position'].iloc[0]
-        
-        # 4. 1위면 앞차가 없음
         if my_pos == 1:
             return {"verdict": "Leader", "desc": "현재 선두입니다. (추월 대상 없음)"}
-        
-        # 5. [수정됨] 앞차(Rival) 찾기 로직
-        # 내 앞 순위(Position - 1)인 드라이버 검색
+
+        # 라이벌 찾기 (내 바로 앞 순위)
         rival_row = laps_at_check[laps_at_check['Position'] == (my_pos - 1)]
+        if rival_row.empty: return {}
         
-        if rival_row.empty:
-            return {"verdict": "Unknown Rival", "desc": "앞차 데이터를 찾을 수 없습니다."}
-            
-        rival_driver = rival_row['Driver'].iloc[0] # 예: 'HAM', 'VER'
-        
-        # 6. 앞차와의 간격 (Gap) 확인
-        # FastF1에서는 실시간 Gap 계산이 복잡하므로, 
-        # TimeDiff(선두와의 차이) 끼리 뺄셈하여 근사치 계산
+        rival_id = rival_row['Driver'].iloc[0]
+
+        # 3. [Data 1] Gap to Rival (현재 격차)
         my_time = my_row['Time'].iloc[0]
         rival_time = rival_row['Time'].iloc[0]
-        gap_to_rival = (my_time - rival_time).total_seconds()
+        current_gap = (my_time - rival_time).total_seconds() # 양수 (+)
+
+        # 4. [Data 2] Pit Loss Delta (피트 스탑 실수 여부)
+        # 내 실제 기록 vs 서킷 평균(정상) 기록 비교
+        # 이 함수는 파일 상단에 정의되어 있어야 합니다.
+        avg_track_loss = get_pit_loss_time(session) 
         
-        # 7. 언더컷 성공 가능성 판단
-        # 일반적인 언더컷 게인: OutLap이 헌 타이어보다 약 1.5~2.5초 빠름
-        undercut_potential = 2.0 
+        # Delta가 양수면 내가 느렸음(손해), 음수면 내가 빨랐음(이득)
+        pit_loss_delta = my_actual_loss - avg_track_loss
+
+        # 5. [Data 3] Undercut Power (순수 페이스 이득)
+        # 여기서는 모델링을 위해 'OutLap 퍼포먼스'를 간략히 상수+가중치로 계산
+        # (원래는 복잡한 타이어 모델이 필요하지만, 시뮬레이션용으로 2.5초 게인 가정)
+        undercut_gain_pure = 2.5 
+
+        # 6. [Result] Net Margin 계산 (핵심 수식)
+        # 최종 격차 = (원래 차이) + (피트 실수) - (타이어 이득)
+        # 결과가 음수(-)여야 추월 성공
+        net_margin = current_gap + pit_loss_delta - undercut_gain_pure
         
-        # 만약 갭이 언더컷 게인보다 작다면? -> 뒤집을 수 있었다!
-        if 0 < gap_to_rival < undercut_potential:
-            return {
-                "verdict": "Undercut Chance!",
-                "desc": f"앞차({rival_driver})와 {gap_to_rival:.1f}초 차이. 1랩 일찍 들어갔다면 추월 가능성 높음."
-            }
-        else:
-            return {
-                "verdict": "Stay Out",
-                "desc": f"앞차({rival_driver})와 {gap_to_rival:.1f}초 차이. 언더컷하기엔 거리가 멉니다."
-            }
+        # 확률 계산
+        prob = 0
+        if net_margin < -1.0: prob = 95  # 여유 있게 성공
+        elif net_margin < 0: prob = 60   # 간발의 차로 성공
+        elif net_margin < 1.0: prob = 30 # 아슬아슬하게 실패
+        else: prob = 5                   # 실패
+
+        return {
+            "verdict": "Analyzed",
+            "rival": rival_id,
+            "telemetry": {
+                "gap_to_rival": round(current_gap, 3),
+                "my_pit_loss": round(my_actual_loss, 2),
+                "avg_pit_loss": round(avg_track_loss, 2),
+                "loss_delta": round(pit_loss_delta, 2)
+            },
+            "simulation": {
+                "undercut_gain": undercut_gain_pure,
+                "net_margin": round(net_margin, 3),
+                "probability": prob
+            },
+            "desc": f"Gap {current_gap:.1f}s | PitDelta {pit_loss_delta:+.1f}s"
+        }
 
     except Exception as e:
-        # print(f"오퍼튜니티 분석 에러: {e}") # 디버깅용
+        # print(f"Audit Error: {e}") 
         return {}
+
+
+
 
 
 # --- [Main Wrapper] 메인 실행 함수 ---
