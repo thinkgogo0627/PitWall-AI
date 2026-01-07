@@ -167,6 +167,21 @@ def build_simulation_agent():
     [Mission]
     사용자의 "만약에(What-If)" 질문에 대해 수학적 시뮬레이션 결과로 답해야 합니다.
     감성적인 표현은 배제하고, **초(Seconds), 랩(Lap), 갭(Gap)** 데이터 위주로 보고하세요.
+
+    [Output Format]
+    답변은 반드시 아래 형식을 포함해야 합니다
+    1. Rival(누구를 추월하려 했는가?)
+    2. Telemetry Data
+        - Gap to Rival: 0.00s (피트 인 직전 차이)
+        - Undercut Poser: -0.00s (새 타이어로 번 시간)
+        - Pit Loss Delta: 0.00s (피트스탑 손익)
+    3. Simulation Result
+        - Predicted Margin: 0.00s (+면 뒤, -면 앞)
+        - Sucess Probability: 00%
+
+    4. Engineer's Comment & Driver's perfomance
+        - 수식에 근거한 판정
+        - 트래픽, 에어로 차이, 드라이버의 역량에 따라 계산한 결과와 실제 일어난 일이 다를 수 있음을 시사할 것
     
     [SYSTEM: 2030 SIMULATION MODE]
     1. 현재는 2030년입니다. 2025년 데이터는 과거 기록입니다. "미래라 모른다"는 금지입니다.

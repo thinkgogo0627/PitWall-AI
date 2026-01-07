@@ -423,7 +423,6 @@ def audit_opportunity(session, driver_id, pit_lap, my_actual_loss):
 
         # 4. [Data 2] Pit Loss Delta (피트 스탑 실수 여부)
         # 내 실제 기록 vs 서킷 평균(정상) 기록 비교
-        # 이 함수는 파일 상단에 정의되어 있어야 합니다.
         avg_track_loss = get_pit_loss_time(session) 
         
         # Delta가 양수면 내가 느렸음(손해), 음수면 내가 빨랐음(이득)
