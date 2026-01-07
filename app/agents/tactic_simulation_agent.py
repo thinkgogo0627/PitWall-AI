@@ -79,9 +79,8 @@ def run_tactical_simulation(year: int, circuit: str, driver_identifier: str, riv
     for idx, pit_row in pit_stops.iterrows():
         pit_lap = int(pit_row['LapNumber'])
         
-        # A. 실제 피트 로스 계산 (User Requirement 2-1)
+        # 1. 실제 로스 계산
         real_pit_loss = get_specific_pit_loss(driver_laps, pit_lap, track_avg_loss)
-        
         report += f"\n**[Pit Stop @ Lap {pit_lap}]** (Actual Loss: {real_pit_loss}s)\n"
         
         # B. 방어 기회 분석 (Extension Audit) - 더 버티는 게 나았나?
@@ -95,14 +94,23 @@ def run_tactical_simulation(year: int, circuit: str, driver_identifier: str, riv
         
         # C. 공격 기회 분석 (Opportunity Audit) - 언더컷 가능했나?
         # 라이벌이 지정되지 않았으면, 당시 앞차를 자동으로 감지해서 분석
-        opp_driver = rival_identifier if rival_identifier else driver_id # rival이 없으면 본인ID 넘겨서 자동감지 유도
+        target_rival = str(rival_identifier) if rival_identifier else None
         
-        # audit_opportunity 함수 호출
-        # (주의: analytics.py의 audit_opportunity가 rival 감지 로직을 포함해야 함)
-        opp_result = audit_opportunity(session, driver_id, pit_lap, real_pit_loss)
+        opp_result = audit_opportunity(session, driver_id, pit_lap, real_pit_loss, target_rival_id=target_rival)
         
         if opp_result:
-             report += f"- **Attack/Undercut:** {opp_result['verdict']} ({opp_result['desc']})\n"
+             # 결과 포맷팅 (Telemetry 데이터가 딕셔너리로 오므로 예쁘게 풀어서 출력)
+             t = opp_result.get("telemetry", {})
+             s = opp_result.get("simulation", {})
+             
+             report += f"""
+             - **Attack Target:** {opp_result.get('rival')}
+               - **Gap to Target:** {t.get('gap_to_rival', 'N/A')}s
+               - **Net Margin:** {s.get('net_margin', 'N/A')}s (Negative is Good)
+               - **Success Prob:** {s.get('probability', 0)}%
+             """
+        else:
+            report += "- **Attack Analysis:** 분석 대상(Rival)을 특정할 수 없거나 데이터가 부족합니다.\n"
 
     return report
 
