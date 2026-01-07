@@ -383,7 +383,8 @@ def audit_extension(driver_laps, pit_lap, slope, pit_loss):
     }
 
 
-def audit_opportunity(session, driver_id, pit_lap, my_actual_loss):
+
+def audit_opportunity(session, driver_id, pit_lap, my_actual_loss, target_rival_id=None):
     """
     [정밀 분석] 언더컷 시뮬레이션
     :param my_actual_loss: get_specific_pit_loss()로 계산된 내 실제 피트 소요 시간
@@ -392,58 +393,65 @@ def audit_opportunity(session, driver_id, pit_lap, my_actual_loss):
     - 라이벌과의 갭: 피트 인 직전의 라이벌과의 시간 차이
     - 언더컷 이듯: (라이벌의 현 타이어 랩터임) - (나의 새 타이어 아웃랩 환산 기록)
     - 피트 로스 델타: (나의 피트로스) - (라이벌의 피트로스)
+    
+    [수정됨] target_rival_id가 있으면 그 드라이버를 강제로 분석합니다.
+    없으면 기존처럼 바로 앞 순위(Auto-Detect)를 찾습니다.
     """
     try:
-        # 1. 기준 랩 (In-Lap 직전) 데이터 로드
+        # 1. 기준 랩 로드
         lap_check = int(pit_lap) - 1
         laps_at_check = session.laps.pick_lap(lap_check)
         
-        # 2. 내 정보 및 라이벌 식별
-        # driver_id 처리 (str/int 호환)
+        # 2. 내 데이터 찾기
         my_row = laps_at_check[laps_at_check['Driver'] == str(driver_id)]
         if my_row.empty: 
              my_row = laps_at_check[laps_at_check['DriverNumber'] == str(driver_id)]
-        
         if my_row.empty: return {}
 
-        my_pos = my_row['Position'].iloc[0]
-        if my_pos == 1:
-            return {"verdict": "Leader", "desc": "현재 선두입니다. (추월 대상 없음)"}
+        # 3. [핵심 수정] 라이벌 찾기 로직 분기
+        rival_row = None
+        
+        if target_rival_id:
+            # A. 지정된 라이벌 강제 검색 (사용자가 '베어만' 찍음)
+            print(f"DEBUG: Targeting Rival ID {target_rival_id}")
+            rival_row = laps_at_check[laps_at_check['Driver'] == str(target_rival_id)]
+            if rival_row.empty:
+                 rival_row = laps_at_check[laps_at_check['DriverNumber'] == str(target_rival_id)]
+            
+            if rival_row.empty:
+                print(f"DEBUG: Rival {target_rival_id} not found in Lap {lap_check}")
+                return {} # 라이벌이 리타이어했거나 데이터 없음
+                
+        else:
+            # B. 기존 로직 (내 바로 앞차 자동 감지)
+            my_pos = my_row['Position'].iloc[0]
+            if my_pos == 1: return {"verdict": "Leader", "desc": "Leader"}
+            rival_row = laps_at_check[laps_at_check['Position'] == (my_pos - 1)]
 
-        # 라이벌 찾기 (내 바로 앞 순위)
-        rival_row = laps_at_check[laps_at_check['Position'] == (my_pos - 1)]
-        if rival_row.empty: return {}
+        if rival_row is None or rival_row.empty: return {}
         
         rival_id = rival_row['Driver'].iloc[0]
 
-        # 3. [Data 1] Gap to Rival (현재 격차)
+        # 4. 데이터 계산 (나머지는 동일)
         my_time = my_row['Time'].iloc[0]
         rival_time = rival_row['Time'].iloc[0]
-        current_gap = (my_time - rival_time).total_seconds() # 양수 (+)
-
-        # 4. [Data 2] Pit Loss Delta (피트 스탑 실수 여부)
-        # 내 실제 기록 vs 서킷 평균(정상) 기록 비교
-        avg_track_loss = get_pit_loss_time(session) 
         
-        # Delta가 양수면 내가 느렸음(손해), 음수면 내가 빨랐음(이득)
+        # 갭 계산 (양수면 내가 뒤, 음수면 내가 앞)
+        current_gap = (my_time - rival_time).total_seconds()
+        
+        # ... (이하 로직 동일: Pit Loss Delta, Net Margin 계산) ...
+        
+        # [복붙용 하단 로직 유지]
+        avg_track_loss = get_pit_loss_time(session) 
         pit_loss_delta = my_actual_loss - avg_track_loss
-
-        # 5. [Data 3] Undercut Power (순수 페이스 이득)
-        # 여기서는 모델링을 위해 'OutLap 퍼포먼스'를 간략히 상수+가중치로 계산
-        # (원래는 복잡한 타이어 모델이 필요하지만, 시뮬레이션용으로 2.5초 게인 가정)
         undercut_gain_pure = 2.5 
-
-        # 6. [Result] Net Margin 계산 (핵심 수식)
-        # 최종 격차 = (원래 차이) + (피트 실수) - (타이어 이득)
-        # 결과가 음수(-)여야 추월 성공
         net_margin = current_gap + pit_loss_delta - undercut_gain_pure
         
-        # 확률 계산
         prob = 0
-        if net_margin < -1.0: prob = 95  # 여유 있게 성공
-        elif net_margin < 0: prob = 60   # 간발의 차로 성공
-        elif net_margin < 1.0: prob = 30 # 아슬아슬하게 실패
-        else: prob = 5                   # 실패
+        if net_margin < -1.0: prob = 95
+        elif net_margin < 0: prob = 60
+        elif net_margin < 1.0: prob = 30
+        else: prob = 5
 
         return {
             "verdict": "Analyzed",
@@ -459,13 +467,12 @@ def audit_opportunity(session, driver_id, pit_lap, my_actual_loss):
                 "net_margin": round(net_margin, 3),
                 "probability": prob
             },
-            "desc": f"Gap {current_gap:.1f}s | PitDelta {pit_loss_delta:+.1f}s"
+            "desc": f"Target: {rival_id} | Gap: {current_gap:.1f}s"
         }
 
     except Exception as e:
-        # print(f"Audit Error: {e}") 
+        print(f"Audit Error: {e}")
         return {}
-
 
 
 
