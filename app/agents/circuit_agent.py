@@ -15,7 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 
 # --- [도구 Import] ---
 from app.tools.soft_data import search_f1_news 
-from data_pipeline.analytics import mini_sector_dominance_analyze, calculate_tire_degradation
+from data_pipeline.analytics import mini_sector_dominance_analyze
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -82,49 +82,81 @@ sector_tool = FunctionTool.from_defaults(
     description="과거 주행 데이터를 기반으로 서킷의 고속/저속 섹터 특성을 분석합니다. 서킷 이름은 가능하면 영문(예: 'Las Vegas')으로 입력하세요."
 )
 
-# (2) 타이어 분석 도구
-def wrapper_tire_analysis(year: int, circuit: str) -> str:
+# (2) 타이어 열 관리 분석 (Blistering vs Graining)
+def analyze_thermal_risk(circuit: str, track_temp_celsius: int = 40) -> str:
     """
-    특정 연도/서킷의 타이어 마모도(Degradation)를 분석합니다.
+    서킷 이름과 트랙 온도를 기반으로 블리스터링(고온) vs 그레이닝(저온) 위험을 진단합니다.
     """
-    eng_circuit = sanitize_circuit_name(circuit) # ★ 여기서 한글을 영어로 바꿉니다!
-    print(f" [Tire Analysis] {year} {eng_circuit} 정밀 분석 요청...")
+    c_eng = sanitize_circuit_name(circuit).lower() # 영어로 변환 후 소문자화
     
-    try:
-        df_deg = calculate_tire_degradation(year, eng_circuit, session_type='R')
-        
-        if df_deg.empty:
-            return "해당 경기의 타이어 데이터를 추출할 수 없습니다 (FastF1 데이터 없음)."
-            
-        summary_lines = [f"[{year} {eng_circuit} 타이어 데그라데이션 (연료 보정됨)]"]
-        
-        compounds = df_deg['Compound'].unique()
-        for comp in compounds:
-            comp_data = df_deg[df_deg['Compound'] == comp]
-            if comp_data.empty: continue
-            
-            avg_deg = comp_data['True_Degradation'].mean()
-            sample_count = len(comp_data)
-            
-            if avg_deg > 0.10: status = "매우 심각 (High)"
-            elif avg_deg > 0.06: status = "보통 (Medium)"
-            elif avg_deg > 0.02: status = "양호 (Low)"
-            else: status = "거의 없음 (Very Low)"
-            
-            summary_lines.append(f"- **{comp}** ({sample_count}스틴트): 랩당 +{avg_deg:.3f}초 느려짐 ({status})")
-            
-        return "\n".join(summary_lines)
-        
-    except Exception as e:
-        return f"타이어 분석 중 오류 발생 ({eng_circuit}): {e}"
+    high_load = ['silverstone', 'spa', 'suzuka', 'barcelona', 'qatar', 'zandvoort', 'great britain', 'japan', 'spain', 'netherlands']
+    high_temp = ['bahrain', 'hungary', 'singapore', 'miami', 'austin', 'abu dhabi', 'usa']
+    low_grip  = ['las vegas', 'monaco', 'baku', 'mexico', 'monza', 'azerbaijan', 'italy']
+    
+    risk_type = "Balanced"
+    severity = "Low"
+    mechanism = "일반적인 타이어 마모 패턴"
+    solution = "표준 관리"
 
-tire_tool = FunctionTool.from_defaults(
-    fn=wrapper_tire_analysis,
-    name="Tire_Degradation_Analyzer",
-    description="과거 데이터를 분석하여 타이어 마모도를 수치로 알려줍니다. 서킷 이름은 가능하면 영문으로 입력하세요."
-)
+    # 로직: 블리스터링 (과열)
+    if (c_eng in high_load) or (c_eng in high_temp) or (track_temp_celsius >= 45):
+        risk_type = "Blistering (블리스터링)"
+        if track_temp_celsius >= 50:
+            severity = "Critical"
+            mechanism = "초고열로 인한 타이어 내부 파열 위험."
+            solution = "내압(Pressure) 낮추고 쿨링 랩 필수."
+        elif c_eng in high_load:
+            severity = "High"
+            mechanism = "고속 코너 횡가속도로 인한 코어 온도 급상승."
+            solution = "고속 구간에서 부하 조절(Lift & Coast)."
+        else:
+            severity = "Medium"
+            mechanism = "높은 기온으로 인한 컴파운드 과열."
+    
+    # 로직: 그레이닝 (저온/슬립)
+    elif (c_eng in low_grip) or (track_temp_celsius <= 25):
+        risk_type = "Graining (그레이닝)"
+        if track_temp_celsius <= 20:
+            severity = "High"
+            mechanism = "저온으로 타이어가 딱딱해져 노면을 잡지 못하고 미끄러짐."
+            solution = "공격적인 웜업으로 작동 온도 유지."
+        else:
+            severity = "Medium"
+            mechanism = "낮은 그립으로 인한 표면 뜯김 현상."
+            solution = "부드러운 스티어링 입력 필요."
 
-# (3) 뉴스 검색 도구
+    return f"[{circuit} Thermal Report]\n- Risk: {risk_type}\n- Severity: {severity}\n- Cause: {mechanism}\n- Tip: {solution}"
+
+# (3) 에어로 셋업 분석
+def analyze_aero_setup(circuit: str) -> str:
+    """서킷 특성에 맞는 최적의 다운포스 셋업을 제안합니다."""
+    c_eng = sanitize_circuit_name(circuit).lower()
+    
+    if c_eng in ['monaco', 'singapore', 'hungary', 'mexico']:
+        setup = "Maximum Downforce"
+        desc = "공기 저항을 무시하고 코너링 그립 극대화 (Barn Door Wing)."
+    elif c_eng in ['monza', 'las vegas', 'baku', 'spa', 'italy', 'azerbaijan', 'belgium']:
+        setup = "Low Drag (Skinny Wing)"
+        desc = "직선 최고 속도가 핵심. 다운포스를 희생하여 드래그 최소화."
+    elif c_eng in ['silverstone', 'suzuka', 'austin', 'barcelona', 'great britain', 'japan', 'spain', 'usa']:
+        setup = "Medium-High Efficiency"
+        desc = "고속 코너 안정성과 직선 속도의 균형점 필요."
+    else:
+        setup = "Medium Downforce"
+        desc = "범용 셋업."
+        
+    return f"[{circuit} Aero Guide]\n- Target: {setup}\n- Reason: {desc}"
+
+# 도구 등록
+thermal_tool = FunctionTool.from_defaults(
+    fn=analyze_thermal_risk,
+    name="Tire_Thermal_Analysis",
+    description="서킷의 온도, 이에 의한 타이어 그레이닝 / 타이어 블리스터링 이슈를 확인합니다")
+
+
+aero_tool = FunctionTool.from_defaults(fn=analyze_aero_setup, name="Aero_Setup_Guide")
+
+# (4) 뉴스 검색 도구
 weather_news_tool = FunctionTool.from_defaults(
     fn=search_f1_news,
     name="Live_Condition_Search",
@@ -137,9 +169,9 @@ PERSIST_DIR = os.path.join(os.path.dirname(__file__), '../../data/storage/circui
 
 def get_circuit_query_engine():
     if not os.path.exists(PERSIST_DIR):
-        print(f"🏗️ 서킷 지식 베이스 인덱싱 시작...")
+        print(f" 서킷 지식 베이스 인덱싱 시작...")
         if not os.path.exists(DATA_DIR) or not os.listdir(DATA_DIR):
-             raise FileNotFoundError(f"❌ 데이터 폴더가 비어있습니다: {DATA_DIR}")
+             raise FileNotFoundError(f" 데이터 폴더가 비어있습니다: {DATA_DIR}")
         documents = SimpleDirectoryReader(DATA_DIR).load_data()
         index = VectorStoreIndex.from_documents(documents)
         index.storage_context.persist(persist_dir=PERSIST_DIR)
@@ -164,21 +196,22 @@ except Exception as e:
 # --- [3. 에이전트 조립] ---
 
 def build_circuit_agent():
-    tools = [circuit_kb_tool, sector_tool, tire_tool, weather_news_tool]
+    tools = [circuit_kb_tool, thermal_tool, sector_tool, aero_tool, weather_news_tool]
     
     system_prompt = """
     당신은 F1 팀의 '레이스 엔지니어'이자 '트랙 분석가'입니다.
     사용자에게 이번 그랑프리 서킷의 **기술적, 전략적 특징**을 브리핑해야 합니다.
     
     [활용 가능한 도구]
-    1. **Circuit_Knowledge_Base**: 서킷의 정적 정보 (우선 사용).
-    2. **Tire_Degradation_Analyzer**: 작년 데이터 기반 타이어 마모도 수치. (입력 시 서킷 이름은 영문으로 자동 변환됩니다)
-    3. **Circuit_Sector_Analyzer**: 고속/저속 섹터 성향 분석. (입력 시 서킷 이름은 영문으로 자동 변환됩니다)
+    1. **Tire_Thermal_Analysis**: 서킷과 온도에 따른 **블리스터링(고온) vs 그레이닝(저온)** 위험 진단. (가장 중요)
+    2. **Aero_Setup_Guide**: 다운포스 셋업 방향성 제시.
+    3. **Circuit_Sector_Analyzer**: 섹터별 강세(파워 유닛 vs 에어로) 분석.
     4. **Live_Condition_Search**: 날씨 및 뉴스.
     
     [답변 가이드라인]
     1. **전문성 과시**: '더티에어', '그레인/블리스터링', '트랙션' 등 전문 용어 사용.
     2. **데이터 기반**: "분석 결과, 소프트 타이어가 랩당 0.1초씩 느려지는 High Deg 성향입니다"와 같이 구체적으로 답변.
+    3. 단순히 "타이어가 마모됩니다"라고 하지 말고, **"블리스터링 위험이 있으니 내압 관리가 필요합니다"** 처럼 구체적인 원인과 해결책을 제시하십시오.
     """
     
     return ReActAgent(
@@ -206,7 +239,7 @@ if __name__ == "__main__":
     async def test():
         print(" Circuit Agent Initialized")
         
-        q = "바쿠 시티 서킷의 특성에 대해서 이것저것 전부 알려줘"
+        q = "바레인의 바레인 인터내셔널 서킷의 특성에 대해서 알려줘. 다운포스 요구량, 타이어 관리 특성같은것도 알려줘."
         print(f"\nUser: {q}\n")
         
         try:
