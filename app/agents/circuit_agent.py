@@ -239,7 +239,7 @@ if __name__ == "__main__":
     async def test():
         print(" Circuit Agent Initialized")
         
-        q = "바레인의 바레인 인터내셔널 서킷의 특성에 대해서 알려줘. 다운포스 요구량, 타이어 관리 특성같은것도 알려줘."
+        q = "라스베이거스 스트립 서킷의 특성에 대해서 알려줘. 다운포스 요구량, 타이어 관리 특성같은것도 알려줘."
         print(f"\nUser: {q}\n")
         
         try:
