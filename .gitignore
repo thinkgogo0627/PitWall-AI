@@ -213,3 +213,15 @@ tests/cache/
 
 # env
 .env
+
+
+# 2. 파이썬 가상환경 및 캐시
+venv/
+__pycache__/
+*.pyc
+
+# 3. 로컬 데이터 폴더 (혹시 생길 경우를 대비)
+data/
+mongo_data/
+.idea/
+.vscode/
