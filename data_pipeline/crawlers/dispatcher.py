@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from .base import BaseCrawler
 # (크롤러 임포트는 그대로 유지)
 from .f1_news import AutosportCrawler 
+from .f1_tactic import Formula1Crawler
 
 class CrawlerDispatcher:
     def __init__(self) -> None:
@@ -41,6 +42,13 @@ class CrawlerDispatcher:
     def register_autosport(self) -> "CrawlerDispatcher":
         # autosport 등록
         self.register("autosport.com", AutosportCrawler)
+        return self
+    
+    def register_formula1(self) -> "CrawlerDispatcher":
+        #formular1 등록
+        # http 또는 https로 시작 + (www.)은 있어도 그만 없어도 그만 + formula1.com + 뒤에 아무거나
+        pattern = r"^https?://(www\.)?formula1\.com.*"
+        self._crawlers[pattern] = Formula1Crawler
         return self
 
     def get_crawler(self, url: str) -> BaseCrawler:
