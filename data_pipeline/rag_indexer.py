@@ -2,7 +2,7 @@
 
 ### [정제 -> 청킹 -> 임베딩 -> 벡터DB 적재 로직] 수행하는 클래스
 ### 차후 Airflow DAG에서 PythonOperator로 호출import re
-
+import uuid
 import re
 import asyncio
 from typing import List
@@ -28,14 +28,20 @@ class RAGIndexer:
         self.qdrant = QdrantClient(url=qdrant_url)
         self.collection_name = "f1_knowledge_base"
         
-        # 3. 임베딩 모델 로드 (BAAI/bge-m3)
-        # (최초 실행 시 모델 다운로드로 시간이 좀 걸립니다)
-        print(" 임베딩 모델 로딩 중 (BAAI/bge-m3)...")
-        self.model = SentenceTransformer('BAAI/bge-m3')
-        self.vector_size = 1024 # bge-m3의 벡터 차원 수
-        
-        # 4. Qdrant 컬렉션 생성 (없으면 생성)
+        self.model = None # 일단 여기서는 모델 로딩 안함
+        self.vector_size = 1024
+
+        # 3. Qdrant 컬렉션 생성 (없으면 생성)
         self._init_qdrant_collection()
+
+
+    # 4. 임베딩 모델 로드 (BAAI/bge-m3) -> 진짜 필요할 때 수행
+    # (최초 실행 시 모델 다운로드로 시간이 좀 걸립니다)
+    def _load_model(self):
+            if self.model is None:
+                print('임베딩 모델 로딩 시작')
+                self.model = SentenceTransformer('BAAI/bge-m3')
+
 
     def _init_qdrant_collection(self):
         """Qdrant에 벡터 저장소 공간(Collection)을 만듭니다."""
@@ -84,7 +90,14 @@ class RAGIndexer:
         docs = await F1NewsDocument.find_all().to_list()
         print(f"📦 MongoDB에서 {len(docs)}개의 문서를 발견했습니다.")
 
+        # 문서 없으면 모델 로딩 없이 즉시 종료
+        if not docs:
+            print("📭 처리할 문서가 없습니다. 종료합니다.")
+            return
+
         total_chunks = 0
+
+        self._load_model()
         
         for doc in docs:
             # A. 정제
@@ -116,7 +129,6 @@ class RAGIndexer:
                 # Qdrant는 UUID 포맷의 ID를 선호하지만, 문자열 해시를 써도 됨.
                 # 여기서는 편의상 UUID 생성을 위해 qdrant가 제공하는 유틸리티 사용 가능하나
                 # 간단히 UUID 패키지 사용해서 고유 ID 생성 추천. 
-                import uuid
                 # 고유 ID 생성 (Deterministic하게 만들면 중복 방지에 좋음)
                 point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, point_id))
 

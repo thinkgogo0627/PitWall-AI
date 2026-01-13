@@ -46,13 +46,22 @@ async def test_crawler_logic():
     print(f"\n🚀 [TEST] 개별 기사 상세 수집: {target_article}")
     
     # 이제 DB가 연결되어 있으니 여기서 에러가 안 남!
-    result = crawler.extract(target_article)
+    result_dict = crawler.extract(target_article)
     
-    if result and result.get('title'):
-        print(f"✅ 테스트 성공!")
-        print(f" - 제목: {result['title']}")
-        print(f" - 본문 길이: {len(result['content'])}자")
-        print(f" - 플랫폼: {result['platform']}")
+    if result_dict and result_dict.get('title'):
+        # [NEW] DB에 진짜로 저장하는 코드 추가!
+        # 1. 딕셔너리를 문서 객체로 변환
+        doc = F1NewsDocument(**result_dict)
+        
+        # 2. 중복 체크 (URL 기준) 후 저장
+        existing_doc = await F1NewsDocument.find_one(F1NewsDocument.url == doc.url)
+        if not existing_doc:
+            await doc.insert()
+            print(f"💾 [저장 완료] MongoDB에 저장되었습니다! (ID: {doc.id})")
+        else:
+            print(f"⚠️ [중복] 이미 DB에 있는 기사입니다.")
+            
+        print(f" - 제목: {doc.title}")
     else:
         print("❌ 실패: 내용을 가져오지 못함")
 
