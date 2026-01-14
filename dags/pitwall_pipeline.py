@@ -1,74 +1,135 @@
+from datetime import datetime, timedelta
+import asyncio
+import pendulum
+
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from datetime import datetime, timedelta
-import sys
-import os
-from dotenv import load_dotenv
 
-# --- [환경 설정] ---
-# 1. 프로젝트 루트 경로를 찾아서 시스템 경로에 추가 (모듈 import용)
-# Airflow가 실행될 때 이 파일의 위치를 기준으로 프로젝트 루트를 찾음
-dag_file_dir = os.path.dirname(os.path.realpath(__file__))
-project_root = os.path.abspath(os.path.join(dag_file_dir, '../')) # dags 폴더의 상위 폴더
+# 우리가 만든 모듈 임포트
+# (Airflow에서 경로 인식을 못하면 plugins 폴더나 PYTHONPATH 설정 필요할 수 있음)
+from data_pipeline.crawlers.f1_tactic import Formula1Crawler
+from data_pipeline.crawlers.f1_news import AutosportCrawler
+from data_pipeline.rag_indexer import RAGIndexer
+from domain.documents import F1NewsDocument
+from motor.motor_asyncio import AsyncIOMotorClient
+from beanie import init_beanie
 
-if project_root not in sys.path:
-    sys.path.append(project_root)
-    print(f"Project root added: {project_root}")
+# ---------------------------------------------------------
+# 1. 비동기 작업을 동기로 감싸는 래퍼(Wrapper) 함수들
+# ---------------------------------------------------------
 
-# 2. .env 파일 로드 (API Key 등)
-env_path = os.path.join(project_root, '.env')
-load_dotenv(env_path)
+# DB 접속 정보 (Docker 내부 통신용)
+MONGO_URI = "mongodb://admin:password123@host.docker.internal:27017"
+QDRANT_URL = "http://host.docker.internal:6333"
 
-# --- [모듈 Import] ---
-from data_pipeline.pipelines.update_race_weekly import update_weekly_news
-from data_pipeline.pipelines.update_db import update_race_data
-from data_pipeline.analytics import calculate_tire_degradation
-from data_pipeline.pipelines.update_db import update_current_season_latest, update_race_data
+# ---------------------------------------------------------
+# 1. 비동기 작업 정의 (Crawler Wrappers)
+# ---------------------------------------------------------
 
-# --- [Default Arguments] ---
+async def _crawl_and_save_generic(crawler_cls, target_url, platform_name):
+    """크롤러 클래스와 타겟 URL을 받아서 실행하는 범용 함수"""
+    print(f"🏎️ [Task] {platform_name} 크롤링 시작...")
+    
+    client = AsyncIOMotorClient(MONGO_URI)
+    await init_beanie(database=client.pitwall_db, document_models=[F1NewsDocument])
+    
+    crawler = crawler_cls()
+    
+    # 목록 수집 (Autosport는 방식이 다를 수 있으나, 여기선 인터페이스가 같다고 가정)
+    # 만약 AutosportCrawler에 crawl_listing_page가 없다면 구현 필요
+    # (우리가 만든 AutosportCrawler는 현재 단일 링크 extract만 구현되어 있음 -> TODO 체크 필요)
+    # 일단 단일 링크 테스트용 로직으로 대체하거나 리스트 수집 로직 추가 필요
+    
+    # [주의] AutosportCrawler에도 crawl_listing_page 메서드를 Formula1Crawler처럼 추가해야 함
+    # 현재는 예시로 Autosport 메인 뉴스 페이지를 타겟으로 함
+    try:
+        if hasattr(crawler, 'crawl_listing_page'):
+            links = crawler.crawl_listing_page(target_url, max_clicks=1)
+        else:
+            # 리스트 수집 기능이 없으면 임시로 빈 리스트 (구현 필요 알림)
+            print(f"⚠️ {platform_name}: crawl_listing_page 메서드 미구현 상태")
+            links = []
+
+        saved_count = 0
+        for link in links:
+            exists = await F1NewsDocument.find_one(F1NewsDocument.url == link)
+            if exists:
+                continue
+            
+            data = crawler.extract(link)
+            if data and data.get('title'):
+                doc = F1NewsDocument(**data)
+                await doc.insert()
+                saved_count += 1
+                
+        print(f"🏁 {platform_name} 완료. {saved_count}건 저장.")
+    finally:
+        crawler.driver.quit()
+
+async def _run_rag_indexing():
+    print("🧠 [Task] RAG 인덱싱 시작")
+    indexer = RAGIndexer(mongo_uri=MONGO_URI, qdrant_url=QDRANT_URL)
+    await indexer.run_indexing()
+
+# ---------------------------------------------------------
+# 2. Airflow Task용 브릿지 함수
+# ---------------------------------------------------------
+
+def task_crawl_f1():
+    asyncio.run(_crawl_and_save_generic(
+        Formula1Crawler, 
+        "https://www.formula1.com/en/latest/tags/analysis.3HkjTN75peeCOsSegCyOWi",
+        "Formula1.com"
+    ))
+
+def task_crawl_autosport():
+    # Autosport F1 뉴스 섹션 URL
+    asyncio.run(_crawl_and_save_generic(
+        AutosportCrawler, 
+        "https://www.autosport.com/f1/news", 
+        "Autosport"
+    ))
+
+def task_run_indexer():
+    asyncio.run(_run_rag_indexing())
+
+# ---------------------------------------------------------
+# 3. DAG 파이프라인 조립
+# ---------------------------------------------------------
+
 default_args = {
     'owner': 'pitwall_engineer',
-    'depends_on_past': False,
-    'email_on_failure': False,
-    'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
 
-# --- [DAG 정의] ---
 with DAG(
-    'pitwall_weekly_ops',
+    'pitwall_daily_pipeline',
     default_args=default_args,
-    description='매일 뉴스 크롤링 및 지난 레이스 전략 감사',
-    schedule_interval='0 9 * * 1', # 매주 월요일 아침 9시
-    start_date=datetime(2024, 1, 1),
-    catchup=False, # 과거 날짜꺼 한꺼번에 돌리지 않기
-    tags=['F1', 'Weekly','Strategy', 'PitWall'],
+    description='Collect F1 News & Indexing',
+    schedule_interval='0 9 * * *', 
+    start_date=pendulum.datetime(2024, 1, 1, tz="Asia/Seoul"),
+    catchup=False,
+    tags=['f1', 'rag'],
 ) as dag:
 
-    # Task 1: 뉴스 데이터 수집 (Soft Data)
-    t1_crawl_news = PythonOperator(
-        task_id='crawl_daily_news',
-        python_callable=update_weekly_news,
+    # 1. 크롤링 태스크들 (병렬 실행 가능)
+    t1_f1 = PythonOperator(
+        task_id='crawl_f1_official',
+        python_callable=task_crawl_f1
     )
 
-    # Task 2: 레이스 데이터 업데이트 (Hard Data)
-    t2_update_race = PythonOperator(
-        task_id='update_race_data',
-        python_callable=update_current_season_latest,
+    t2_autosport = PythonOperator(
+        task_id='crawl_autosport',
+        python_callable=task_crawl_autosport
     )
 
-    def finish_job():
-        print('주간 업데이트 작업 완료')
-    
-    t3_finish = PythonOperator(
-        task_id = 'pipeline_finish',
-        python_callable = finish_job
+    # 2. 인덱싱 태스크 (크롤링 후 실행)
+    t3_index = PythonOperator(
+        task_id='rag_indexing',
+        python_callable=task_run_indexer
     )
 
-   
-    
-
-    # --- [파이프라인 순서] ---
-    # 뉴스를 먼저 보고 -> 경기 데이터를 업데이트 하고 -> 전략을 분석한다
-    t1_crawl_news >> t2_update_race >> t3_finish
+    # [Dependency Structure]
+    # F1크롤러와 Autosport크롤러는 동시에 돌고, 둘 다 끝나면 인덱싱 시작
+    [t1_f1, t2_autosport] >> t3_index
