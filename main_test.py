@@ -32,18 +32,18 @@ async def test_crawler_logic():
     target_list_url = "https://www.formula1.com/en/latest/tags/analysis.3HkjTN75peeCOsSegCyOWi"
     
     # (1) 목록 수집 테스트
-    print(f"\n🚀 [TEST] 목록 수집 시작 (타겟: {target_list_url})")
+    print(f"\n [TEST] 목록 수집 시작 (타겟: {target_list_url})")
     # 테스트니까 1~2번만 클릭해서 빠르게 확인
     article_links = crawler.crawl_listing_page(target_list_url, max_clicks=2)
     
-    print(f"📦 총 {len(article_links)}개의 링크 확보!")
+    print(f" 총 {len(article_links)}개의 링크 확보!")
     if not article_links:
-        print("❌ 링크 수집 실패")
+        print(" 링크 수집 실패")
         return
 
     # (2) 개별 기사 수집 테스트 (첫 번째 링크로)
     target_article = article_links[0]
-    print(f"\n🚀 [TEST] 개별 기사 상세 수집: {target_article}")
+    print(f"\n [TEST] 개별 기사 상세 수집: {target_article}")
     
     # 이제 DB가 연결되어 있으니 여기서 에러가 안 남!
     result_dict = crawler.extract(target_article)

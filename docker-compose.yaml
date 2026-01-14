@@ -1,49 +1,113 @@
 version: '3.8'
 
+# 기존 개별 존재하던 Chrome, Mongo, Qdrant ...
+# Airflow까지 태워서 한 번에 묶어버리기 
+
+x-airflow-common: &airflow-common
+  build: .  # 현재 폴더의 Dockerfile로 빌드
+  env_file: .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    # [중요] 모듈 경로 인식 설정
+    PYTHONPATH: /opt/airflow
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./data_pipeline:/opt/airflow/data_pipeline
+    - ./domain:/opt/airflow/domain
+    - ./logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+
 services:
-  # 1. MongoDB 엔진
+  # 1. Airflow 메타데이터 DB (PostgreSQL)
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: always
+
+  # 2. Airflow 웹서버
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  # 3. Airflow 스케줄러 (여기가 작업 실행 주체)
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      <<: *airflow-common-depends-on
+      # 스케줄러가 얘네들을 쓸 수 있어야 함
+      selenium-chrome:
+        condition: service_started
+    restart: always
+
+  # 4. Airflow 초기화 (최초 1회 실행용)
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+    
+  # 5. Selenium Standalone Chrome (원격 브라우저)
+  selenium-chrome:
+    image: selenium/standalone-chrome:latest
+    container_name: pitwall_chrome
+    # shared-memory 사이즈 늘려야 크롬이 안 죽음
+    shm_size: "2gb" 
+    ports:
+      - "4444:4444" # 로컬 디버깅용 (Airflow는 내부망으로 접속)
+      - "7900:7900" # 노변(VNC) 접속용 (비번: secret)
+    restart: always
+
+  # 6. MongoDB
   mongodb:
     image: mongo:latest
     container_name: pitwall_mongo
-    restart: always
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ID}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PW}
     ports:
       - "27017:27017"
     volumes:
-      # - ./data/mongo_db:/data/db  <-- 윈도우 폴더랑 연결해서 에러 남
-      # [수정 후] 도커 전용 볼륨 사용 -> 도커 환경은 WSL인데 데이터 저장 폴더가 Window인 경우 충돌 발생
-      - mongo_data:/data/db
-
-  # 2. Mongo Express (GUI)
-  mongo-express:
-    image: mongo-express
-    container_name: pitwall_mongo_ui
+      - mongodb_data:/data/db
     restart: always
-    ports:
-      - "8088:8081"
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_ID}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PW}
-      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_ID}:${MONGO_PW}@mongodb:27017/
-      ME_CONFIG_BASICAUTH: "false"
-    depends_on:
-      - mongodb
 
-
-  # 3. Qdrant 벡터 데이터베이스
+  # 7. Qdrant
   qdrant:
     image: qdrant/qdrant:latest
     container_name: pitwall_qdrant
     ports:
       - "6333:6333"
-      - "6334:6334"
     volumes:
-      - ./qdrant_data:/qdrant/storage # 데이터 영구 저장
+      - ./qdrant_data:/qdrant/storage
     restart: always
-    
 
-# [NEW] 볼륨 정의 추가 (맨 아래에 이거 꼭 추가!)
 volumes:
-  mongo_data:
+  postgres-db-volume:
+  mongodb_data:

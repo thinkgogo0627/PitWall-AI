@@ -24,3 +24,22 @@ llama-index-embeddings-google  # (선택) 임베딩 쓸 경우 필요
 # --- Utils ---
 python-dotenv  # .env 파일 로드용
 requests       # 가끔 웹 요청 필요할 때
+
+
+# --- Crawlling ---
+selenium
+trafilatura
+beautifulsoup4
+
+
+
+# --- DB & Vector ---
+motor
+beanie
+qdrant-client
+sentence-transformers
+langchain-text-splitters
+
+
+# --- Airflow 유틸 (필요시) ---
+pendulum
