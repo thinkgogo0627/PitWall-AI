@@ -107,9 +107,9 @@ with DAG(
     'pitwall_daily_pipeline',
     default_args=default_args,
     description='Collect F1 News & Indexing',
-    schedule_interval='0 9 * * *', 
+    schedule_interval=timedelta(days=14), 
     start_date=pendulum.datetime(2024, 1, 1, tz="Asia/Seoul"),
-    catchup=False,
+    catchup=False, # 과거 데이터 소급 실행 방지
     tags=['f1', 'rag'],
 ) as dag:
 
