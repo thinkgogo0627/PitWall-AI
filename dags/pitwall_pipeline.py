@@ -19,8 +19,8 @@ from beanie import init_beanie
 # ---------------------------------------------------------
 
 # DB 접속 정보 (Docker 내부 통신용)
-MONGO_URI = "mongodb://admin:password123@host.docker.internal:27017"
-QDRANT_URL = "http://host.docker.internal:6333"
+MONGO_URI = "mongodb://mongodb:27017"
+QDRANT_URL = "http://qdrant:6333"
 
 # ---------------------------------------------------------
 # 1. 비동기 작업 정의 (Crawler Wrappers)

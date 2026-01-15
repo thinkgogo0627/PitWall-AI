@@ -148,7 +148,7 @@ class RAGIndexer:
 if __name__ == "__main__":
     # 로컬 설정
     indexer = RAGIndexer(
-        mongo_uri="mongodb://admin:password123@localhost:27017",
-        qdrant_url="http://localhost:6333"
+        mongo_uri="mongodb://mongodb:27017",
+        qdrant_url="http://qdrant:6333"
     )
     asyncio.run(indexer.run_indexing())

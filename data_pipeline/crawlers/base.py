@@ -27,37 +27,36 @@ class BaseCrawler(ABC):
         """
         ...
 
-class BaseSeleniumCrawler(BaseCrawler, ABC):
-    """
-    [기반 클래스] Selenium이 필요한 크롤러를 위한 공통 기능을 제공.
-    """
-    def __init__(self, scroll_limit: int = 5):
-        options = webdriver.ChromeOptions()
-        
-        # [헤드리스 모드 및 최적화 옵션]
+class BaseSeleniumCrawler(ABC):
+    def __init__(self):
+        self.driver = self._init_driver()
+
+    def _init_driver(self):
+        options = Options()
+        # Docker 환경 필수 옵션들
+        options.add_argument("--headless") # 화면 없이 실행
         options.add_argument("--no-sandbox")
-        options.add_argument("--headless=new") # 화면 없이 실행
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.add_argument("--log-level=3")
-        options.add_argument(f"--user-data-dir={mkdtemp()}")
-        options.add_argument(f"--data-path={mkdtemp()}")
-        options.add_argument(f"--disk-cache-dir={mkdtemp()}")
         
+        # 하위 클래스(F1, Autosport)에서 추가 옵션 설정
         self.set_extra_driver_options(options)
-        
-        self.scroll_limit = scroll_limit
-        # 드라이버 초기화 (실패 시 에러 로그가 명확히 뜨도록)
-        try:
-            self.driver = webdriver.Chrome(options=options)
-        except Exception as e:
-            print(f"Chrome Driver Init Error: {e}")
-            raise e
 
-    def set_extra_driver_options(self, options: Options) -> None:
-        """하위 클래스에서 옵션을 추가할 수 있는 훅(Hook)"""
+        # [핵심 변경] Remote WebDriver 사용!
+        # command_executor 주소가 'selenium-chrome' 컨테이너를 가리킴
+        driver = webdriver.Remote(
+            command_executor='http://selenium-chrome:4444/wd/hub',
+            options=options
+        )
+        return driver
+
+    def set_extra_driver_options(self, options) -> None:
+        """하위 클래스에서 오버라이딩"""
         pass
 
+    @abstractmethod
+    def extract(self, link: str, **kwargs) -> dict:
+        pass
     def scroll_page(self) -> None:
         """무한 스크롤 페이지 대응"""
         current_scroll = 0

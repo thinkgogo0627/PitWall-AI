@@ -108,6 +108,18 @@ services:
       - ./qdrant_data:/qdrant/storage
     restart: always
 
+  # 8. MongoExpress
+  mongo-express:
+    image: mongo-express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+    depends_on:
+      - mongodb
+
 volumes:
   postgres-db-volume:
   mongodb_data:
