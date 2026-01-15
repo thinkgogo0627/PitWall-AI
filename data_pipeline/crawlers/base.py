@@ -6,15 +6,9 @@ from tempfile import mkdtemp
 import os
 
 # Selenium 관련 (필요할 때만 설치하도록 try-except 처리 추천하지만, 일단 그대로 둠)
-import chromedriver_autoinstaller
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-# 크롬 드라이버 자동 설치 확인
-try:
-    chromedriver_autoinstaller.install()
-except:
-    pass # 이미 설치되어 있거나 권한 문제 시 패스 (Airflow 환경에 따라 다름)
 
 
 ## 앞으로 다른 크롤러에 사용될 기본적인 Base crawler
