@@ -70,7 +70,7 @@ def run_tactical_simulation(year: int, circuit: str, driver_identifier: str, riv
     if pit_stops.empty:
         return "해당 드라이버는 피트 스탑을 하지 않았습니다 (No-Stop or DNF)."
 
-    report = f"### 🏎️ Tactical Analysis: Driver {driver_id} ({year} {circuit})\n"
+    report = f"###  Tactical Analysis: Driver {driver_id} ({year} {circuit})\n"
     
     # 트랙 기본 피트 로스 (백업용)
     track_avg_loss = get_pit_loss_time(session)

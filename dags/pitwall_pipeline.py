@@ -27,44 +27,66 @@ QDRANT_URL = "http://qdrant:6333"
 # ---------------------------------------------------------
 
 async def _crawl_and_save_generic(crawler_cls, target_url, platform_name):
-    """크롤러 클래스와 타겟 URL을 받아서 실행하는 범용 함수"""
+    """크롤러 클래스와 타겟 URL을 받아서 실행하는 범용 함수 (개선판)"""
     print(f"🏎️ [Task] {platform_name} 크롤링 시작...")
     
+    # DB 연결
     client = AsyncIOMotorClient(MONGO_URI)
     await init_beanie(database=client.pitwall_db, document_models=[F1NewsDocument])
     
     crawler = crawler_cls()
+    saved_count = 0
     
-    # 목록 수집 (Autosport는 방식이 다를 수 있으나, 여기선 인터페이스가 같다고 가정)
-    # 만약 AutosportCrawler에 crawl_listing_page가 없다면 구현 필요
-    # (우리가 만든 AutosportCrawler는 현재 단일 링크 extract만 구현되어 있음 -> TODO 체크 필요)
-    # 일단 단일 링크 테스트용 로직으로 대체하거나 리스트 수집 로직 추가 필요
-    
-    # [주의] AutosportCrawler에도 crawl_listing_page 메서드를 Formula1Crawler처럼 추가해야 함
-    # 현재는 예시로 Autosport 메인 뉴스 페이지를 타겟으로 함
     try:
+        # 1. 목록 수집
         if hasattr(crawler, 'crawl_listing_page'):
-            links = crawler.crawl_listing_page(target_url, max_clicks=1)
+            print(f"📡 목록 수집 중... ({target_url})")
+            links = crawler.crawl_listing_page(target_url, max_clicks=3) # 클릭 수 늘림
         else:
-            # 리스트 수집 기능이 없으면 임시로 빈 리스트 (구현 필요 알림)
-            print(f"⚠️ {platform_name}: crawl_listing_page 메서드 미구현 상태")
+            print(f"⚠️ {platform_name}: crawl_listing_page 미구현. 건너뜀.")
             links = []
 
-        saved_count = 0
-        for link in links:
-            exists = await F1NewsDocument.find_one(F1NewsDocument.url == link)
-            if exists:
-                continue
-            
-            data = crawler.extract(link)
-            if data and data.get('title'):
-                doc = F1NewsDocument(**data)
-                await doc.insert()
-                saved_count += 1
+        print(f"📋 수집 대상 링크: {len(links)}개")
+
+        # 2. 개별 기사 순회 (에러 핸들링 강화)
+        for i, link in enumerate(links):
+            try:
+                # 이미 있는지 확인 (비동기)
+                exists = await F1NewsDocument.find_one(F1NewsDocument.url == link)
+                if exists:
+                    # 너무 로그가 많으면 시끄러우니까 10개마다 하나씩만 찍기
+                    if i % 10 == 0:
+                        print(f"⏭ 중복 건너뜀 ({i}/{len(links)})")
+                    continue
                 
-        print(f"🏁 {platform_name} 완료. {saved_count}건 저장.")
+                # 추출 (동기 함수)
+                print(f" [{i+1}/{len(links)}] 추출 시도: {link}")
+                data = crawler.extract(link)
+                
+                if data and data.get('title') and data.get('content'):
+                    doc = F1NewsDocument(**data)
+                    await doc.insert()
+                    saved_count += 1
+                    print(f" 저장 완료! (현재 {saved_count}건)")
+                else:
+                    print(f" 데이터 부족으로 저장 실패: {link}")
+                    
+            except Exception as inner_e:
+                print(f" 개별 기사 처리 중 에러 ({link}): {inner_e}")
+                # 여기서 continue가 되므로, 하나 실패해도 다음 거 진행함!
+                continue
+
+        print(f" {platform_name} 최종 완료. 총 {saved_count}건 신규 저장.")
+        
+    except Exception as e:
+        print(f" 크롤러 전체 프로세스 에러: {e}")
+        raise e # 이건 Airflow에게 실패를 알리기 위함
+        
     finally:
-        crawler.driver.quit()
+        # 안전하게 종료
+        if hasattr(crawler, 'driver'):
+            crawler.driver.quit()
+            print(" 드라이버 종료됨.")
 
 async def _run_rag_indexing():
     print("🧠 [Task] RAG 인덱싱 시작")
@@ -110,6 +132,7 @@ with DAG(
     schedule_interval=timedelta(days=14), 
     start_date=pendulum.datetime(2024, 1, 1, tz="Asia/Seoul"),
     catchup=False, # 과거 데이터 소급 실행 방지
+    max_active_runs = 1, # 동시에 실행되는 DAG Run 갯수를 1개로 제한
     tags=['f1', 'rag'],
 ) as dag:
 
