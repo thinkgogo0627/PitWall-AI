@@ -50,7 +50,7 @@ class F1Retriever:
             return results
 
         except Exception as e:
-            print(f"❌ 검색 중 에러 발생: {e}")
+            print(f"검색 중 에러 발생: {e}")
             return []
 
 if __name__ == "__main__":
