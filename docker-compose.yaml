@@ -20,6 +20,8 @@ x-airflow-common: &airflow-common
     - ./data_pipeline:/opt/airflow/data_pipeline
     - ./domain:/opt/airflow/domain
     - ./logs:/opt/airflow/logs
+    - ./data:/opt/airflow/data
+
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on

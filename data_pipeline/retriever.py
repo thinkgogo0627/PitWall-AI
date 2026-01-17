@@ -16,13 +16,26 @@ class F1Retriever:
         print(f" [Retriever] Qdrant 연결 중... ({qdrant_url})")
         self.client = QdrantClient(url=qdrant_url)
         
-        # 2. 임베딩 모델 로드 (데이터 적재할 때 쓴 모델과 똑같은 놈이어야 함!)
-        # BAAI/bge-m3는 한국어/영어 모두 성능이 좋은 SOTA 모델입니다.
-        # 처음 실행 시 모델을 다운로드하느라 시간이 좀 걸립니다.
-        print(" [Retriever] 임베딩 모델 로딩 중 (BAAI/bge-m3)...")
-        self.embed_model = SentenceTransformer('BAAI/bge-m3')
-        print(" [Retriever] 준비 완료.")
+        # 2. 임베딩 모델 로드
+        docker_model_path = "/opt/airflow/data/model_cache/bge-m3"
+        # 2. 로컬 테스트용 경로 (Docker 밖에서 돌릴 때)
+        local_model_path = os.path.join(os.path.dirname(__file__), "../data/model_cache/bge-m3")
+        
+        if os.path.exists(docker_model_path):
+            print(f" [Retriever] 로컬 모델 로드 (Docker): {docker_model_path}")
+            model_source = docker_model_path
+        
+        elif os.path.exists(local_model_path):
+            print(f" [Retriever] 로컬 모델 로드 (Local): {local_model_path}")
+            model_source = local_model_path
+        
+        else:
+            print(" [Retriever] 로컬 모델 없음! HuggingFace에서 다운로드합니다.")
+            model_source = 'BAAI/bge-m3'
 
+        self.embed_model = SentenceTransformer(model_source)
+        print(" [Retriever] 준비 완료.")
+        
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.4) -> List[Dict[str, Any]]:
         """
         자연어 질문을 벡터로 변환하여 Qdrant에서 유사한 문서를 찾습니다.
