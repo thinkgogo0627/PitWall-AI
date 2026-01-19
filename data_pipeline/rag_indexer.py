@@ -1,154 +1,149 @@
-## MongoDB에서 원본 데이터에서 데이터를 가져와서,,,
-
-### [정제 -> 청킹 -> 임베딩 -> 벡터DB 적재 로직] 수행하는 클래스
-### 차후 Airflow DAG에서 PythonOperator로 호출import re
+import os
 import uuid
-import re
-import asyncio
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+
 from typing import List
 from motor.motor_asyncio import AsyncIOMotorClient
-from beanie import init_beanie
-
-# [도구들]
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance
+from qdrant_client.http import models
+from sentence_transformers import SentenceTransformer
+import torch # GPU 체크용
 
-# [도메인]
+# 도메인 모델 (Beanie Document)
 from domain.documents import F1NewsDocument
-
 
 class RAGIndexer:
     def __init__(self, mongo_uri: str, qdrant_url: str):
-        # 1. MongoDB 연결 준비
         self.mongo_uri = mongo_uri
-        
-        # 2. Qdrant 클라이언트 연결
-        self.qdrant = QdrantClient(url=qdrant_url)
+        self.qdrant_url = qdrant_url
         self.collection_name = "f1_knowledge_base"
         
-        self.model = None # 일단 여기서는 모델 로딩 안함
-        self.vector_size = 1024
-
-        # 3. Qdrant 컬렉션 생성 (없으면 생성)
-        self._init_qdrant_collection()
-
-
-    # 4. 임베딩 모델 로드 (BAAI/bge-m3) -> 진짜 필요할 때 수행
-    # (최초 실행 시 모델 다운로드로 시간이 좀 걸립니다)
-    def _load_model(self):
-            if self.model is None:
-                print('임베딩 모델 로딩 시작')
-                self.model = SentenceTransformer('BAAI/bge-m3')
-
-
-    def _init_qdrant_collection(self):
-        """Qdrant에 벡터 저장소 공간(Collection)을 만듭니다."""
-        if not self.qdrant.collection_exists(self.collection_name):
-            self.qdrant.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
-            )
-            print(f" Qdrant 컬렉션 생성 완료: {self.collection_name}")
-
-    def clean_text(self, text: str) -> str:
-        """[Step 1] 텍스트 정제"""
-        if not text: return ""
-        # 1. 과도한 공백/줄바꿈 제거
-        text = re.sub(r'\n+', '\n', text) 
-        text = re.sub(r'\s+', ' ', text)
-        # 2. "Related Articles" 같은 노이즈 제거 (필요시 패턴 추가)
-        text = text.replace("Load more", "").replace("Subscribe", "")
-        return text.strip()
-
-    def chunk_text(self, text: str) -> List[str]:
-        """[Step 2] 텍스트 청킹 (LangChain 로직)"""
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,       # 한 덩어리 크기 (자)
-            chunk_overlap=100,    # 문맥 유지를 위해 겹치는 구간
-            separators=["\n\n", "\n", ".", " ", ""] # 자르는 우선순위
-        )
-        return splitter.split_text(text)
-
-    def embed_text(self, chunks: List[str]) -> List[List[float]]:
-        """[Step 3] 임베딩 (Text -> Vector)"""
-        # sentence-transformers는 리스트를 한 번에 처리해줍니다 (Batch)
-        embeddings = self.model.encode(chunks, normalize_embeddings=True)
-        return embeddings.tolist()
-
-    async def run_indexing(self):
-        """[Step 4] 실행 파이프라인 (MongoDB -> Qdrant)"""
-        print("🚀 인덱싱 작업 시작...")
+        # 1. Qdrant 클라이언트 연결
+        print(f"🔌 [Indexer] Connecting to Qdrant: {self.qdrant_url}")
+        self.qdrant_client = QdrantClient(url=self.qdrant_url)
         
-        # 1. DB 연결
+        # 2. 임베딩 모델 로드 (GPU 가속 확인)
+        # 로컬 캐시 경로 우선 확인 (로컬에 설정한 그 경로!)
+        docker_model_path = "/opt/airflow/data/model_cache/bge-m3"
+        local_model_path = os.path.join(os.path.dirname(__file__), "../data/model_cache/bge-m3")
+        
+        model_path = "BAAI/bge-m3" # 기본값
+        if os.path.exists(docker_model_path): model_path = docker_model_path
+        elif os.path.exists(local_model_path): model_path = local_model_path
+
+        # GPU 사용 가능 여부 확인
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f" [Indexer] Loading Model on [{device.upper()}] from {model_path}...")
+        
+        self.embed_model = SentenceTransformer(model_path, device=device)
+
+    def _generate_deterministic_uuid(self, text: str) -> str:
+        """URL 기반으로 항상 같은 UUID를 생성 (멱등성 보장 핵심)"""
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, text))
+
+    async def run_indexing(self, batch_size: int = 50):
+        """MongoDB의 데이터를 읽어서 Qdrant에 적재"""
+        print(" Indexing Started...")
+        
+        # 1. MongoDB 연결
         client = AsyncIOMotorClient(self.mongo_uri)
-        await init_beanie(database=client.pitwall_db, document_models=[F1NewsDocument])
+        db = client.pitwall_db
+        # Beanie 초기화가 안 되어 있을 수 있으므로 raw query 사용
+        # (Beanie 의존성을 줄여서 가볍게 실행)
+        collection = db.get_collection("f1_news_articles")
         
-        # 2. 아직 벡터화되지 않은 문서 가져오기
-        # (지금은 테스트라 '모든' 문서를 가져옵니다. 나중엔 flag 필터링 필요)
-        docs = await F1NewsDocument.find_all().to_list()
-        print(f"📦 MongoDB에서 {len(docs)}개의 문서를 발견했습니다.")
-
-        # 문서 없으면 모델 로딩 없이 즉시 종료
-        if not docs:
-            print("📭 처리할 문서가 없습니다. 종료합니다.")
-            return
-
-        total_chunks = 0
-
-        self._load_model()
-        
-        for doc in docs:
-            # A. 정제
-            cleaned_content = self.clean_text(doc.content)
-            if len(cleaned_content) < 50: continue # 너무 짧으면 스킵
-
-            # B. 청킹
-            chunks = self.chunk_text(cleaned_content)
-            if not chunks: continue
-
-            # C. 임베딩
-            vectors = self.embed_text(chunks)
-
-            # D. Qdrant 업로드 (Batch Upload)
-            points = []
-            for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
-                # ID 생성: 문서ID_청크순번
-                point_id = f"{doc.id}_{i}"
-                
-                # 메타데이터: 출처 확인을 위해 중요!
-                payload = {
-                    "source_url": doc.url,
-                    "title": doc.title,
-                    "platform": doc.platform,
-                    "published_at": doc.published_at.isoformat() if doc.published_at else None,
-                    "text": chunk  # 검색 결과로 보여줄 원본 텍스트
-                }
-                
-                # Qdrant는 UUID 포맷의 ID를 선호하지만, 문자열 해시를 써도 됨.
-                # 여기서는 편의상 UUID 생성을 위해 qdrant가 제공하는 유틸리티 사용 가능하나
-                # 간단히 UUID 패키지 사용해서 고유 ID 생성 추천. 
-                # 고유 ID 생성 (Deterministic하게 만들면 중복 방지에 좋음)
-                point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, point_id))
-
-                points.append(PointStruct(id=point_uuid, vector=vector, payload=payload))
-
-            # Qdrant에 저장
-            self.qdrant.upsert(
+        # 2. Qdrant 컬렉션 생성 (없으면 생성) & 인덱스 설정
+        if not self.qdrant_client.collection_exists(self.collection_name):
+            print(f" Creating Collection: {self.collection_name}")
+            self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
-                points=points
+                vectors_config=models.VectorParams(
+                    size=1024, # bge-m3 output dimension
+                    distance=models.Distance.COSINE
+                )
             )
-            total_chunks += len(chunks)
-            print(f" -> 문서 '{doc.title[:20]}...' 처리 완료 ({len(chunks)} Chunks)")
+            # [최적화] 필터링 자주 하는 필드 인덱싱
+            self.qdrant_client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="platform",
+                field_schema=models.PayloadSchemaType.KEYWORD
+            )
+            self.qdrant_client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="published_at",
+                field_schema=models.PayloadSchemaType.DATETIME
+            )
 
-        print(f" 인덱싱 완료! 총 {total_chunks}개의 청크가 Qdrant에 적재되었습니다.")
+        # 3. 데이터 패치 및 임베딩 (Batch Processing)
+        # 아직 벡터화되지 않은(혹은 전체) 문서를 가져옵니다.
+        # 여기서는 간단하게 '전체 스캔 후 Upsert' 방식으로 멱등성을 테스트합니다.
+        cursor = collection.find({}) 
+        
+        batch_docs = []
+        total_indexed = 0
+        
+        async for doc in cursor:
+            batch_docs.append(doc)
+            
+            if len(batch_docs) >= batch_size:
+                await self._process_batch(batch_docs)
+                total_indexed += len(batch_docs)
+                batch_docs = [] # 초기화
 
-# --- 실행부 (테스트용) ---
+        # 남은 배치 처리
+        if batch_docs:
+            await self._process_batch(batch_docs)
+            total_indexed += len(batch_docs)
+            
+        print(f" Indexing Finished! Total {total_indexed} documents processed.")
+
+    async def _process_batch(self, docs: List[dict]):
+        """배치 단위 임베딩 및 업로드"""
+        texts = [d.get('content', '')[:8000] for d in docs] # 너무 긴 텍스트 잘라내기
+        metadatas = []
+        ids = []
+        
+        for d in docs:
+            url = d.get('url', '')
+            # [멱등성 핵심] URL로 ID 생성
+            ids.append(self._generate_deterministic_uuid(url))
+            
+            metadatas.append({
+                "title": d.get('title', ''),
+                "url": url,
+                "platform": d.get('platform', 'Unknown'),
+                "published_at": d.get('published_at', '').isoformat() if d.get('published_at') else None,
+                "text": d.get('content', '')[:1000] # Qdrant Payload에 저장할 본문 (검색 결과 표시용)
+            })
+
+        # 1. GPU로 한 방에 임베딩
+        if not texts: return
+        embeddings = self.embed_model.encode(texts, convert_to_numpy=True)
+        
+        # 2. Qdrant Points 생성
+        points = [
+            models.PointStruct(
+                id=id_,
+                vector=embedding.tolist(),
+                payload=metadata
+            )
+            for id_, embedding, metadata in zip(ids, embeddings, metadatas)
+        ]
+        
+        # 3. 업로드 (Upsert: 기존 ID 있으면 덮어씀)
+        self.qdrant_client.upsert(
+            collection_name=self.collection_name,
+            points=points
+        )
+        print(f" Batch Upserted: {len(points)} items")
+
+# 테스트 실행용
 if __name__ == "__main__":
-    # 로컬 설정
+    import asyncio
     indexer = RAGIndexer(
-        mongo_uri="mongodb://mongodb:27017",
-        qdrant_url="http://qdrant:6333"
+        mongo_uri="mongodb://localhost:27017", # 로컬 테스트 시
+        qdrant_url="http://localhost:6333"
     )
     asyncio.run(indexer.run_indexing())
