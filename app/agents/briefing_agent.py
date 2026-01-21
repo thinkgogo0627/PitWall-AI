@@ -26,9 +26,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 # (app.tools.hard_data에 정의된 analyze_race_data 함수를 가져옵니다)
 from app.tools.hard_data import analyze_race_data 
 
-# 2. Soft Data: 인터뷰, 이슈, 사고 원인 검색
-from app.tools.soft_data import search_f1_news_web
-
+# 2. Soft Data (RAG 기반 검색 도구들)
+from app.tools.soft_data import (
+    search_f1_news_web,         # 일반 뉴스 (Fallback용)
+    get_driver_interview,       # 드라이버/감독 인터뷰 (감정/반응)
+    search_technical_analysis,  # 기술 분석 (업데이트/차량 성능)
+    get_event_timeline          # 경기 타임라인 (주요 사건 사고)
+)
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
@@ -50,15 +54,36 @@ race_result_tool = FunctionTool.from_defaults(
     """
 )
 
-# (2) 뉴스/이슈 검색 도구
-race_news_tool = FunctionTool.from_defaults(
-    fn=search_f1_news_web,
-    name="Race_Context_Search",
-    description="""
-    경기 내외적인 '맥락(Context)'을 인터넷에서 검색합니다.
-    드라이버 인터뷰, 사고의 구체적 원인, 심사위원의 페널티 판정 이유, 팀 라디오 내용 등을 찾을 때 사용하세요.
-    """
+# (2) 인터뷰 검색 (NEW)
+tool_interview = FunctionTool.from_defaults(
+    fn=get_driver_interview,
+    name="Search_Interviews",
+    description="드라이버나 팀 감독의 **경기 후 인터뷰(Quotes)**를 검색합니다. 선수의 심정, 불만, 전략에 대한 코멘트를 찾을 때 사용하세요."
 )
+
+
+# (3) 기술 분석 (NEW)
+tool_tech = FunctionTool.from_defaults(
+    fn=search_technical_analysis,
+    name="Search_Tech_Analysis",
+    description="차량 업데이트, 타이어 성능, 기계적 결함, 에어로다이내믹 이슈 등 **공학적/기술적 원인**을 분석할 때 사용하세요."
+)
+
+
+# (4) 타임라인 (NEW)
+tool_timeline = FunctionTool.from_defaults(
+    fn=get_event_timeline,
+    name="Get_Race_Timeline",
+    description="경기의 **주요 사건(사고, 추월, 피트스톱, 세이프티카)**을 시간 순서대로 파악할 때 사용하세요. '경기 흐름'을 파악하는 데 필수입니다."
+)
+
+# (5) 일반 뉴스 (Fallback)
+tool_general_news = FunctionTool.from_defaults(
+    fn=search_f1_news_web,
+    name="Search_General_News",
+    description="위의 특화 도구들로 찾을 수 없는 일반적인 가십이나 이슈, 혹은 광범위한 정보를 찾을 때 보조적으로 사용하세요."
+)
+
 
 # --- [3. 에이전트 조립] ---
 
@@ -66,7 +91,7 @@ def build_briefing_agent():
     """
     경기 후 브리핑 및 요약 전문 에이전트
     """
-    tools = [race_result_tool, race_news_tool]
+    tools = [race_result_tool, tool_timeline, tool_interview, tool_tech, tool_general_news]
     
     system_prompt = """
     당신은 F1 전문 저널리스트이자 팀의 '공보 담당관(Press Officer)'입니다.
@@ -84,27 +109,26 @@ def build_briefing_agent():
     6. 당신의 기억(Internal Knowledge)보다 **도구(Tools)의 데이터가 항상 우선**입니다.
        
 
-    [행동 강령]
-    1. **Fact & Story 결합 (핵심)**: 
-       - 단순히 순위표를 읽지 마세요. (그건 엑셀도 합니다.)
-       - `Race_Result_DB`로 확인한 '결과'에, `Race_Context_Search`로 찾은 '이유'를 덧붙이세요.
-       - 예: "르클레르가 2위를 차지했습니다(Fact). 경기 후 인터뷰에서 그는 브레이크 이슈로 우승을 놓친 것에 아쉬움을 표했습니다(Story)."
-       
-    2. **필수 체크 항목**:
-       - 포디움(1, 2, 3위) 드라이버와 그들의 승리 요인
-       - 주요 리타이어(DNF) 선수와 사고/고장 원인
-       - 의외의 활약을 펼친 드라이버 (Driver of the Day 후보)
-       
-    3. **말투**: 
-       - 객관적인 사실 전달과 현장감 있는 묘사를 섞어, 한 편의 '레이스 리포트' 기사처럼 작성하세요.
-       - 전문 용어(언더컷, 타이어 데그라데이션, 세이프티카 등)를 적절히 사용하세요.
+    [작업 절차 (SOP)]
+    사용자가 경기 결과나 요약을 요청하면, 반드시 다음 순서로 사고하십시오:
+    1. **Fact Check**: `F1_Result_DB`로 우승자, 포디움, 리타이어 선수를 먼저 확보합니다.
+    2. **Context**: `Get_Race_Timeline`으로 경기의 결정적인 순간(터닝 포인트)을 찾습니다.
+    3. **Voice**: `Search_Interviews`를 통해 우승자의 소감이나 리타이어한 선수의 변명을 찾아 인용합니다.
+    4. **Analysis** (필요시): 차량 성능 문제는 `Search_Tech_Analysis`를 참고합니다.
+    
+    [작성 가이드]
+    - **근거 제시**: "데이터에 따르면...", "베르스타펜의 인터뷰에 의하면...", "기술적 분석을 보면..." 처럼 출처를 암시하며 권위 있게 작성하세요.
+    - **스토리텔링**: "A가 1등입니다." (X) -> "A는 경기 중반 세이프티카 변수를 완벽하게 활용하여 극적인 우승을 차지했습니다." (O)
+    - **Qdrant 활용**: 검색된 뉴스나 인터뷰 내용은 매우 신뢰도가 높으므로 적극적으로 인용하세요.
+    - 전문 용어(언더컷, 타이어 데그라데이션, 세이프티카 등)를 적절히 사용하세요.
     """
     
     return ReActAgent(
         llm=llm,
         tools=tools,
         system_prompt=system_prompt,
-        verbose=True
+        verbose=True,
+        max_iterations = 10
     )
 
 # --- [4. 실행 래퍼 (Retry 적용)] ---
@@ -130,7 +154,7 @@ if __name__ == "__main__":
         #  DB에 2025년 가상 데이터가 들어있다고 가정하고 질문해야 합니다. 
         
         
-        q = "2025 네덜란드 GP 결과를 요약해주고, 레드불 팀과 맥라렌 팀의 경기 결과를 요약해줘"
+        q = "2025 네덜란드 GP 결과를 요약해주고, 레드불 팀과 맥라렌 팀의 경기 결과를 요약해줘. 그리고 경기 후에 베르스타펜이 뭐라고 인터뷰했는지도 알려줘"
         print(f"\nUser: {q}\n")
         
         try:
