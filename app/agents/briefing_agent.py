@@ -8,6 +8,8 @@ import asyncio
 import warnings
 
 from dotenv import load_dotenv
+load_dotenv()
+
 from llama_index.core import Settings
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.core.tools import FunctionTool
@@ -20,6 +22,8 @@ warnings.filterwarnings("ignore", message=".*model_computed_fields.*")
 
 # 경로 설정
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
 
 # --- [도구 Import] ---
 # 1. Hard Data: 경기 결과(순위, 포인트, 리타이어 등) 조회 (Text-to-SQL)
@@ -33,8 +37,7 @@ from app.tools.soft_data import (
     search_technical_analysis,  # 기술 분석 (업데이트/차량 성능)
     get_event_timeline          # 경기 타임라인 (주요 사건 사고)
 )
-load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
 
 # --- [1. LLM 설정] ---
 # 작문(Storytelling) 능력이 중요하므로 Flash 모델 사용 (복잡한 추론보다는 요약/작문 위주)

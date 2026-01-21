@@ -245,8 +245,16 @@ def analyze_race_data(query: str) -> str:
     print(f" Hard Data 분석 요청: '{query}'")
 
     try:
-        # ★ 수정됨: query_engine.query()를 직접 부르지 않고, 재시도 함수를 호출합니다.
-        response = _query_with_retry(query)
+        #  [수정 포인트] 프롬프트 엔지니어링 (Prompt Injection)
+        # LLM에게 "팀 컬럼도 무조건 SELECT에 넣어라"고 강제.
+        enhanced_query = (
+            f"{query} "
+            "IMPORTANT: When selecting driver results, **ALWAYS include the 'Team' column** in the SELECT clause. "
+            "Do not guess the team, fetch it from the database."
+        )
+
+        # ★ 수정됨: 원래 query 대신 enhanced_query를 넘깁니다.
+        response = _query_with_retry(enhanced_query)
         
         executed_sql = response.metadata.get('sql_query', 'SQL 정보 없음')
         print(f"   └ 생성된 SQL: {executed_sql}")
