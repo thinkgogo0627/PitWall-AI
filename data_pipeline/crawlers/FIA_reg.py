@@ -7,6 +7,7 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
+from beanie.operators import Set
 from datetime import datetime
 from pypdf import PdfReader
 from domain.documents import F1NewsDocument
@@ -131,14 +132,76 @@ class FIARegulationCrawler:
             print(traceback.format_exc())
             return []
 
-# 테스트용
+# ... (위쪽 import 및 클래스 정의는 그대로) ...
+## 적재
 if __name__ == "__main__":
-    crawler = FIARegulationCrawler()
-    # 2026 테크니컬 규정 테스트
-    docs = crawler.crawl("2026_technical")
+    import asyncio
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from beanie import init_beanie
     
-    if docs:
-        print("\n--- Sample Document ---")
-        print(f"Title: {docs[10].title}") # 10번째 페이지(보통 본문 시작) 확인
-        print(f"URL: {docs[10].url}")
-        print(f"Content Preview: {docs[10].content[:200]}...")
+    # 📌 로컬 실행용 메인 함수
+    async def main():
+        print(" [Manual Run] MongoDB 연결 중...")
+        
+        # 1. DB 연결 (로컬 환경에 맞게 주소 조정)
+        # docker-compose로 띄운 몽고DB가 27017포트로 열려있다고 가정
+        client = AsyncIOMotorClient("mongodb://localhost:27017")
+        
+        # 2. Beanie 초기화
+        await init_beanie(database=client.pitwall_db, document_models=[F1NewsDocument])
+        
+        crawler = FIARegulationCrawler()
+        
+        # 수집할 타겟 정의 (2026 테크니컬 & 스포팅)
+        targets = ["2026_technical", "2026_sporting"]
+        
+        print("\n" + "="*50)
+        print(" FIA 규정집 수동 업데이트 시작")
+        print("="*50)
+
+        total_saved = 0
+
+        for doc_type in targets:
+            print(f"\n 수집 시작: {doc_type}")
+            docs = crawler.crawl(doc_type)
+            
+            if not docs:
+                print(" 수집된 문서가 없습니다.")
+                continue
+
+            print(f" DB 저장 중... ({len(docs)} pages)")
+            saved_count = 0
+            updated_count = 0
+            
+            for doc in docs:
+                #  [Upsert Logic] 
+                # 1. 기존 문서가 있는지 확인 (카운팅 목적)
+                existing_doc = await F1NewsDocument.find_one(F1NewsDocument.url == doc.url)
+                
+                # 2. Upsert 수행 (핵심!)
+                # URL이 같으면 -> Set 내부의 필드만 갱신
+                # URL이 다르면 -> on_insert에 있는 doc 전체를 저장
+                await F1NewsDocument.find_one(F1NewsDocument.url == doc.url).upsert(
+                    Set({
+                        F1NewsDocument.title: doc.title,
+                        F1NewsDocument.content: doc.content,
+                        F1NewsDocument.published_at: datetime.now(), # 갱신 시각 업데이트
+                        F1NewsDocument.is_embedded: False # 🌟 중요: 내용이 바뀌었으니 다시 임베딩 대상이 됨
+                    }),
+                    on_insert=doc
+                )
+                
+                if existing_doc:
+                    updated_count += 1
+                else:
+                    saved_count += 1
+            
+            print(f" {doc_type} 완료: 신규 {saved_count}건 / 갱신 {updated_count}건")
+            total_saved += saved_count
+
+        print("\n" + "="*50)
+        print(f" 작업 종료. 총 {total_saved} 페이지가 DB에 추가되었습니다.")
+        
+
+    # 실행
+    asyncio.run(main())

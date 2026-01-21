@@ -13,7 +13,7 @@ from duckduckgo_search import DDGS
 # [경로 설정] 로컬/Docker 어디서든 모듈을 찾을 수 있게
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-# ✅ 우리가 방금 고친 그 엔진 임포트
+
 from data_pipeline.retriever import F1Retriever
 
 # 로거 설정
@@ -69,7 +69,7 @@ def get_driver_interview(driver: str, event: str = "") -> str:
     특정 드라이버나 관계자의 인터뷰, 발언, 심정을 검색합니다.
     (예: "Verstappen", "Monaco GP")
     """
-    if not retriever_engine: return "⚠️ 검색 엔진 오류"
+    if not retriever_engine: return "!! 검색 엔진 오류 !!"
     
     # 💡 [Prompt Engineering] 검색어 뒤에 'interview', 'quotes' 등을 붙여 인터뷰 기사 유도
     query = f"{driver} {event} interview quotes reaction said statement"
@@ -92,7 +92,7 @@ def search_technical_analysis(team: str, component: str = "") -> str:
     팀의 기술 업데이트, 차량 문제, 공기역학 분석 리포트를 검색합니다.
     (예: "Ferrari", "Floor upgrade")
     """
-    if not retriever_engine: return " 검색 엔진 오류"
+    if not retriever_engine: return "!! 검색 엔진 오류 !!"
     
     # 기술 용어 가중치 추가
     query = f"{team} {component} technical analysis upgrade aerodynamics performance issues"
