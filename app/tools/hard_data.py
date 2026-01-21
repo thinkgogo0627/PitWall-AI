@@ -163,6 +163,13 @@ combined_prompt_str = """
 5. **차량 번호 필수 포함**: 드라이버나 순위 관련 조회 시, 반드시 **'No' 컬럼(차량 번호)**을 SELECT 절에 포함하세요.
    - (X) SELECT Driver, Position ...
    - (O) SELECT No, Driver, Position ...  <-- 이렇게!
+   
+
+6. **쿼리 제작 시 반드시 팀 정보 (TeamName) 컬럼을 추가하세요
+    - "IMPORTANT INSTRUCTION: "
+        "1. When selecting driver results, **ALWAYS include the 'Team' column** in the SELECT clause. "
+        "2. Do not hallucinate. If the user asks for results, query the 'race_results' table. "
+        "3. Select columns: Position, Driver, Team, GridPosition, Points, Status."
 
 
 [예시 1: 타이어별 평균 페이스 비교]
@@ -249,7 +256,7 @@ def analyze_race_data(query: str) -> str:
         # LLM에게 "팀 컬럼도 무조건 SELECT에 넣어라"고 강제.
         enhanced_query = (
             f"{query} "
-            "IMPORTANT: When selecting driver results, **ALWAYS include the 'Team' column** in the SELECT clause. "
+            "IMPORTANT: When selecting driver results, **ALWAYS include the 'TeamName' column** in the SELECT clause. "
             "Do not guess the team, fetch it from the database."
         )
 
