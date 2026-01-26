@@ -30,12 +30,66 @@ try:
 except Exception as e:
     print(f" Cache Enable Failed: {e}")
 
+# -----------------------------------------------------------------------------
+# 드라이버 이름 정규화
+# 
+
+DRIVER_MAPPING = {
+    # Red Bull
+    '베르스타펜': 'VER', '막스': 'VER', 'Verstappen': 'VER', 'Max': 'VER',
+    '츠노다': 'TSU', 'Tsunoda': 'TSU',
+    # Cadillac
+    '보타스': 'BOT', 'Bottas': 'BOT', 'Valteri': 'BOT',
+    '페레즈': 'PER', '체코': 'PER', 'Perez': 'PER', 'Sergio': 'PER',
+    # McLaren
+    '노리스': 'NOR', '랜도': 'NOR', 'Norris': 'NOR', 'Lando': 'NOR',
+    '피아스트리': 'PIA', '오스카': 'PIA', 'Piastri': 'PIA', 'Oscar': 'PIA',
+    # Ferrari
+    '르클레르': 'LEC', '샤를': 'LEC', 'Leclerc': 'LEC', 'Charles': 'LEC',
+    '해밀턴': 'HAM', '루이스': 'HAM', 'Hamilton': 'HAM', 'Lewis': 'HAM',
+    # Williams
+    '알본': 'ALB', 'Albon': 'ALB',
+    '사인츠': 'SAI', '카를로스': 'SAI', 'Sainz': 'SAI', 'Carlos': 'SAI',
+    # Mercedes
+    '안토넬리': 'ANT', 'Antonelli': 'ANT',
+    '러셀': 'RUS', '조지': 'RUS', 'Russell': 'RUS', 'George': 'RUS',
+    # Aston Martin
+    '알론소': 'ALO', 'Alonso': 'ALO',
+    '스트롤': 'STR', 'Stroll': 'STR',
+    # Alpine
+    '가슬리': 'GAS', 'Pierre': 'GAS',
+    '콜라핀토': 'COL' , '콜라': 'COL',
+    # Haas
+    '베어만': 'BEA' , '올리' : 'BEA',
+    '오콘': 'OCO', '에스테반':'OCO',
+    # VCAR
+    '로슨': 'LAW', '리암 로슨': 'LAW',
+    '린드블라드': 'LIN' , '린블': 'LIN',
+    # Audi
+    '휠켄버그': 'HUL' , '헐크': 'HUL' , '니코 휠켄버그': 'HUL',
+    '보톨레토': 'BOR' , '가비': 'BOR'
+
+    
+}
+
+def _normalize_name(name: str) -> str:
+    """입력된 이름이 매핑 테이블에 있으면 약어로 변환, 없으면 대문자로 반환"""
+    clean_name = name.strip()
+    if clean_name in DRIVER_MAPPING:
+        return DRIVER_MAPPING[clean_name]
+    # 매핑에 없으면 그냥 3글자로 자르고 대문자로 (FastF1이 알아서 처리하길 기대)
+    return clean_name.upper()[:3]
+
+
 
 # -----------------------------------------------------------------------------
 # 1. 랩타임 비교 그래프 (기존 기능 + 공식 컬러 함수 적용)
 # -----------------------------------------------------------------------------
 def generate_lap_comparison_plot(year: int, race: str, driver1: str, driver2: str) -> str:
     try:
+        driver1 = _normalize_name(driver1)
+        driver2 = _normalize_name(driver2)
+
         print(f" [Compare] Loading Data: {year} {race} ({driver1} vs {driver2})...")
         session = fastf1.get_session(year, race, 'R')
         session.load(telemetry=False, weather=False, messages=False)
@@ -81,6 +135,9 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
     트랙의 각 지점에서 누가 더 빨랐는지를 색상으로 표시하는 지도를 그립니다.
     """
     try:
+        driver1 = _normalize_name(driver1)
+        driver2 = _normalize_name(driver2)
+
         print(f"🗺️ [Dominance] Generating Map: {year} {race} ({driver1} vs {driver2})...")
         session = fastf1.get_session(year, race, 'R')
         session.load(telemetry=True, weather=False, messages=False) # 텔레메트리 필수
@@ -145,6 +202,44 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
         import traceback
         traceback.print_exc()
         return f"Dominance Map Error: {str(e)}"
+    
+
+# -----------------------------------------------------------------------------
+# 3. [NEW] 스피드 트레이스 (Speed Trace)
+# -----------------------------------------------------------------------------
+def generate_speed_trace_plot(year: int, race: str, driver1: str, driver2: str) -> str:
+    try:
+        driver1 = _normalize_name(driver1)
+        driver2 = _normalize_name(driver2)
+
+        print(f"📈 [Speed] Tracing: {year} {race} ({driver1} vs {driver2})...")
+        session = fastf1.get_session(year, race, 'R')
+        session.load(telemetry=True, weather=False, messages=False)
+
+        l1 = session.laps.pick_driver(driver1).pick_fastest()
+        l2 = session.laps.pick_driver(driver2).pick_fastest()
+        if l1 is None or l2 is None: return "X 텔레메트리 데이터 부족 X"
+
+        t1 = l1.get_telemetry().add_distance()
+        t2 = l2.get_telemetry().add_distance()
+
+        plt.figure(figsize=(10, 5))
+        plt.style.use('dark_background')
+
+        c1 = fastf1.plotting.get_driver_color(driver1, session=session)
+        c2 = fastf1.plotting.get_driver_color(driver2, session=session)
+
+        plt.plot(t1['Distance'], t1['Speed'], color=c1, label=driver1, linewidth=2)
+        plt.plot(t2['Distance'], t2['Speed'], color=c2, label=driver2, linewidth=2, linestyle='--')
+
+        plt.title(f"{year} {race} Speed Trace: {driver1} vs {driver2}", color='white', fontweight='bold')
+        plt.xlabel("Distance (m)", color='white')
+        plt.ylabel("Speed (km/h)", color='white')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
+        return _save_plot(f"{year}_{race}_Speed_{driver1}_vs_{driver2}.png")
+    except Exception as e: return f"Error: {e}"
 
 # 내부 저장 헬퍼 함수
 def _save_plot(filename):
