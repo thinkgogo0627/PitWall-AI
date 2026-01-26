@@ -81,7 +81,7 @@ with st.sidebar:
     
     # 세션 설정
     st.subheader("📍 Race Session")
-    selected_year = st.selectbox("Year", [2024, 2025], index=0)
+    selected_year = st.selectbox("Year", [2021, 2022, 2023, 2024, 2025], index=0)
     selected_gp = st.selectbox("Grand Prix", GP_LIST, index=3) # Default: Japan
     
     st.divider()

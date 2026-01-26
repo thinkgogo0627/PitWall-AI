@@ -37,8 +37,37 @@ async def generate_quick_summary(year, gp, driver_focus=None):
         2. **결정적 순간:** 타임라인에서 'Retirement', 'Crash', 'Penalty', 'DSQ' 키워드가 있다면 반드시 강조하세요.
         3. **한국어**로 명확하고 전문적으로 작성하세요.
         4. 출력은 마크다운 형식으로 헤드라인, 경기 요약, 주요 이슈(DNF/DSQ) 순으로 정리하세요.
-        """
+        5. 팀명을 서술할 때에는 팀의 영어 발음명을 기준으로 서술하세요
+            - 레드불: 오라클 레드불 레이싱 , 메르세데스: 메르세데스 포물러 원 팀, 알핀: 알핀..
+            - 알핀을 알파인으로 발음하지 마십시오
 
+
+
+        [드라이버 매핑]
+        # VER: 막스 베르스타펜
+        # TSU: 츠노다 유키
+        # NOR: 랜도 노리스
+        # PIA: 오스카 피아스트리
+        # RUS: 조지 러셀
+        # ANT: 키미 안토넬리
+        # HAM: 루이스 해밀턴
+        # LEC: 샤를 르끌레르 
+        # SAI: 카를로스 사인츠
+        # ALB: 알렉스 알본
+        # ALO: 페르난도 알론소
+        # STR: 랜스 스트롤
+        # OCO: 에스테반 오콘
+        # BEA: 올리버 베어만
+        # LAW: 리암 로슨
+        # LIN: 알빈 린드블라드
+        # HAD: 아이작 하자
+        # BOR: 가브리엘 보톨레토
+        # HUL: 니코 훌켄버그
+        # PER: 세르히오 페레즈
+        # BOT: 발테리 보타스
+        # GAS: 피에르 가슬리
+        # COL: 프랑코 콜라핀토
+        """
         # 3. 단발성 추론 (One-shot Generation)
         response = await llm.acomplete(prompt)
         return str(response)
