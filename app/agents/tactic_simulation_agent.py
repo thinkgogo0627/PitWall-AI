@@ -128,7 +128,7 @@ def build_simulation_agent():
     
     driver_map = """
     [Driver Mapping Reference]
-     - Max Verstappen (막스 베르스타펜, VER): 1
+    - Max Verstappen (막스 베르스타펜, VER): 1
 
     - Yuki Tsunoda (유키 츠노다, TSU): 22
 

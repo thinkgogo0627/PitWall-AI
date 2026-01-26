@@ -108,34 +108,38 @@ tab1, tab2 = st.tabs(["💬 Pit Wall Chat (브리핑/뉴스)", "📈 Telemetry S
 # TAB 1: Chat Interface (Briefing Agent)
 # ==============================================================================
 with tab1:
-    st.caption("경기 결과 요약, 뉴스 검색, 규정 관련 질문은 여기서 하세요.")
+    st.caption("🔍 경기 결과 요약, 뉴스 검색, 규정 확인")
     
-    # 세션 상태 초기화
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Box, Box. PitWall-AI 브리핑 담당관입니다. 무엇을 도와드릴까요?"}
-        ]
+    if "msg_briefing" not in st.session_state:
+        st.session_state.msg_briefing = [{"role": "assistant", "content": f"Box, Box. {selected_year} {selected_gp} 브리핑 준비 완료."}]
 
-    # 대화 기록 출력
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    for msg in st.session_state.msg_briefing:
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    # 사용자 입력
-    if prompt := st.chat_input("질문을 입력하세요 (예: 이번 경기 리타이어 누구야?)"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # 에이전트 응답
+    if prompt := st.chat_input("뉴스/규정 질문 (예: 이번 경기 리타이어 누구야?)"):
+        st.session_state.msg_briefing.append({"role": "user", "content": prompt})
+        with st.chat_message("user"): st.markdown(prompt)
+        
         with st.chat_message("assistant"):
-            with st.spinner("데이터베이스 검색 중..."):
+            # 👇 [핵심 변경] st.status로 진행 상황을 감싸서 보여줌
+            with st.status("🏎️ AI가 데이터를 분석하고 있습니다...", expanded=True) as status:
+                st.write("📡 데이터베이스 접속 중...")
+                
+                # 에이전트 실행
                 try:
-                    # 비동기 함수 실행
-                    response = asyncio.run(run_briefing_agent(prompt))
+                    context_prompt = f"[{selected_year} {selected_gp} Context] {prompt}"
+                    response = asyncio.run(run_briefing_agent(context_prompt))
+                    
+                    # 완료 되면 상태 업데이트
+                    st.write("✅ 리포트 생성 완료!")
+                    status.update(label="분석 완료!", state="complete", expanded=False)
+                    
+                    # 결과 출력
                     st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    st.session_state.msg_briefing.append({"role": "assistant", "content": response})
+                
                 except Exception as e:
+                    status.update(label="오류 발생", state="error")
                     st.error(f"에러 발생: {e}")
 
 # ==============================================================================
