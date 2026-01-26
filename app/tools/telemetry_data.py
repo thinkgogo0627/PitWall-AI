@@ -94,8 +94,8 @@ def generate_lap_comparison_plot(year: int, race: str, driver1: str, driver2: st
         session = fastf1.get_session(year, race, 'R')
         session.load(telemetry=False, weather=False, messages=False)
 
-        d1_laps = session.laps.pick_driver(driver1)
-        d2_laps = session.laps.pick_driver(driver2)
+        d1_laps = session.laps.pick_drivers(driver1)
+        d2_laps = session.laps.pick_drivers(driver2)
 
         if d1_laps.empty or d2_laps.empty:
             return f" 데이터 부족: {driver1} 혹은 {driver2}의 기록이 없습니다."
@@ -143,8 +143,8 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
         session.load(telemetry=True, weather=False, messages=False) # 텔레메트리 필수
 
         # 각 드라이버의 가장 빠른 랩 추출
-        lap1 = session.laps.pick_driver(driver1).pick_fastest()
-        lap2 = session.laps.pick_driver(driver2).pick_fastest()
+        lap1 = session.laps.pick_drivers(driver1).pick_fastest()
+        lap2 = session.laps.pick_drivers(driver2).pick_fastest()
 
         if lap1 is None or lap2 is None:
             return " 데이터 부족: 텔레메트리 분석을 위한 랩 데이터가 없습니다."
@@ -216,8 +216,8 @@ def generate_speed_trace_plot(year: int, race: str, driver1: str, driver2: str) 
         session = fastf1.get_session(year, race, 'R')
         session.load(telemetry=True, weather=False, messages=False)
 
-        l1 = session.laps.pick_driver(driver1).pick_fastest()
-        l2 = session.laps.pick_driver(driver2).pick_fastest()
+        l1 = session.laps.pick_drivers(driver1).pick_fastest()
+        l2 = session.laps.pick_drivers(driver2).pick_fastest()
         if l1 is None or l2 is None: return "X 텔레메트리 데이터 부족 X"
 
         t1 = l1.get_telemetry().add_distance()

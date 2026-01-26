@@ -22,7 +22,8 @@ sys.path.append(project_root)
 try:
     # 채팅용 에이전트 (뉴스/브리핑)
     from app.agents.briefing_agent import run_briefing_agent
-    
+    from app.tools.briefing_pipeline import generate_quick_summary
+
     # 시각화용 도구 (직접 호출하여 속도 향상)
     from app.tools.telemetry_data import (
         generate_lap_comparison_plot,
@@ -108,39 +109,55 @@ tab1, tab2 = st.tabs(["💬 Pit Wall Chat (브리핑/뉴스)", "📈 Telemetry S
 # TAB 1: Chat Interface (Briefing Agent)
 # ==============================================================================
 with tab1:
-    st.caption("🔍 경기 결과 요약, 뉴스 검색, 규정 확인")
+    st.markdown("### 🎙️ Race Briefing Room")
+    
+    # [섹션 1] Quick Action Buttons (파이프라인 적용 -> 초고속)
+    col_b1, col_b2 = st.columns(2)
+    
+    briefing_container = st.container() # 결과가 나올 공간
+
+    with col_b1:
+        if st.button("📰 Race Summary\n(전체 경기 요약)", type="primary"):
+            with briefing_container:
+                with st.spinner(f"⚡ {selected_year} {selected_gp} 데이터를 병렬 분석 중..."):
+                    # Agent 안 쓰고 파이프라인 직접 호출
+                    summary = asyncio.run(generate_quick_summary(selected_year, selected_gp))
+                    st.markdown(summary)
+                    # 기록 저장
+                    st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
+
+    with col_b2:
+        if st.button(f"🏎️ {driver_1} Focus Report\n(내 드라이버 분석)"):
+            with briefing_container:
+                with st.spinner(f"⚡ {driver_1}의 서사를 추적 중..."):
+                    summary = asyncio.run(generate_quick_summary(selected_year, selected_gp, driver_focus=driver_1))
+                    st.markdown(summary)
+                    st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
+
+    st.divider()
+
+    # [섹션 2] Deep Dive Chat (기존 Agent -> 심층 질문용)
+    st.caption("💬 더 궁금한 점이 있다면 대화로 질문하세요. (예: '안토넬리 인터뷰 내용 알려줘')")
     
     if "msg_briefing" not in st.session_state:
-        st.session_state.msg_briefing = [{"role": "assistant", "content": f"Box, Box. {selected_year} {selected_gp} 브리핑 준비 완료."}]
+        st.session_state.msg_briefing = []
 
     for msg in st.session_state.msg_briefing:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    if prompt := st.chat_input("뉴스/규정 질문 (예: 이번 경기 리타이어 누구야?)"):
+    if prompt := st.chat_input("심층 질문 입력..."):
         st.session_state.msg_briefing.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.markdown(prompt)
         
         with st.chat_message("assistant"):
-            # 👇 [핵심 변경] st.status로 진행 상황을 감싸서 보여줌
-            with st.status("🏎️ AI가 데이터를 분석하고 있습니다...", expanded=True) as status:
-                st.write("📡 데이터베이스 접속 중...")
+            with st.status("🕵️ 에이전트가 심층 조사 중...", expanded=True) as status:
+                # 심층 질문은 기존처럼 Agent가 도구를 골라가며 수행
+                context_prompt = f"[{selected_year} {selected_gp}] {prompt}"
+                response = asyncio.run(run_briefing_agent(context_prompt))
                 
-                # 에이전트 실행
-                try:
-                    context_prompt = f"[{selected_year} {selected_gp} Context] {prompt}"
-                    response = asyncio.run(run_briefing_agent(context_prompt))
-                    
-                    # 완료 되면 상태 업데이트
-                    st.write("✅ 리포트 생성 완료!")
-                    status.update(label="분석 완료!", state="complete", expanded=False)
-                    
-                    # 결과 출력
-                    st.markdown(response)
-                    st.session_state.msg_briefing.append({"role": "assistant", "content": response})
-                
-                except Exception as e:
-                    status.update(label="오류 발생", state="error")
-                    st.error(f"에러 발생: {e}")
+                status.update(label="조사 완료", state="complete", expanded=False)
+                st.markdown(response)
+                st.session_state.msg_briefing.append({"role": "assistant", "content": response})
 
 # ==============================================================================
 # TAB 2: Telemetry Studio (Dashboard Interface)
