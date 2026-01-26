@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -6,131 +5,188 @@ import os
 import sys
 import asyncio
 
-# --- [1. 한글 폰트 설정 (리눅스 정석 방법)] ---
-# apt-get install fonts-nanum 으로 설치된 경로
+# --- [1. 한글 폰트 설정 (기존 코드 유지)] ---
 font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
-
-# 폰트 파일이 있는지 확인
 if os.path.exists(font_path):
-    # 폰트 매니저에 강제 등록
     fm.fontManager.addfont(font_path)
-    
-    # 등록된 폰트 이름으로 설정
     font_name = fm.FontProperties(fname=font_path).get_name()
     plt.rc('font', family=font_name)
     plt.rc('axes', unicode_minus=False)
-else:
-    # 폰트가 없으면 경고 (하지만 1단계에서 설치했으니 무조건 있어야 함)
-    st.warning("나눔고딕 폰트가 설치되지 않았습니다. 터미널에서 'sudo apt-get install fonts-nanum'을 실행하세요.")
 
-# --- [2. 프로젝트 모듈 설정] ---
-# (여기부터는 기존 코드와 동일합니다. 그대로 두세요.)
+# --- [2. 프로젝트 경로 설정] ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
 
+# --- [3. 모듈 임포트] ---
 try:
-    from app.agents.strategy_agent import run_strategy_agent
-    from app.agents.circuit_agent import run_circuit_agent
+    # 채팅용 에이전트 (뉴스/브리핑)
     from app.agents.briefing_agent import run_briefing_agent
-    from app.agents.tactic_simulation_agent import run_simulation_agent
+    
+    # 시각화용 도구 (직접 호출하여 속도 향상)
+    from app.tools.telemetry_data import (
+        generate_lap_comparison_plot,
+        generate_track_dominance_plot,
+        generate_speed_trace_plot,
+        DRIVER_MAPPING
+    )
 except ImportError as e:
-    st.error(f"에이전트 모듈 로드 실패: {e}")
+    st.error(f"모듈 로드 실패: {e}")
     st.stop()
 
-# --- [3. 페이지 설정] ---
-st.set_page_config(page_title="PitWall AI", layout="wide")
+# --- [4. 페이지 설정] ---
+st.set_page_config(
+    page_title="PitWall-AI Pro",
+    page_icon="🏎️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-with st.sidebar:
-    st.title("PitWall AI")
-    st.markdown("""
-    **F1 데이터 기반 전략 어시스턴트**
-    
-    각 탭은 독립된 대화 세션을 가집니다.
-    """)
-    st.divider()
-    st.caption("Powered by Gemini 2.5 & FastF1")
-
-
-# --- [4. 세션 상태 초기화 (대화방 분리)] ---
-# chat_history가 없으면, 3개의 방을 가진 딕셔너리로 초기화
-if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = {
-        "Strategy": [],
-        "Circuit": [],
-        "Briefing": [],
-        "Simulation": []
+# --- [5. 스타일링 (CSS)] ---
+st.markdown("""
+<style>
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        height: 3.5em;
+        font-weight: bold;
+        transition: all 0.3s;
     }
+    .stButton>button:hover {
+        border-color: #ff2b2b;
+        color: #ff2b2b;
+    }
+    h1, h2, h3 {
+        color: #ff2b2b !important; /* Ferrari Red style */
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# --- [5. 메인 로직 함수화] ---
-# 코드를 깔끔하게 하기 위해, 각 탭의 내용을 그리는 함수를 만듭니다.
-def render_tab_content(mode_name, agent_func, description):
-    st.caption(description)
+# --- [6. 데이터 준비] ---
+# 드라이버 목록 (중복 제거 및 정렬)
+DRIVER_LIST = sorted(list(set(DRIVER_MAPPING.values())))
+GP_LIST = [
+    "Bahrain", "Saudi Arabia", "Australia", "Japan", "China", "Miami", 
+    "Emilia Romagna", "Monaco", "Canada", "Spain", "Austria", "Great Britain", 
+    "Hungary", "Belgium", "Netherlands", "Italy", "Azerbaijan", "Singapore", 
+    "United States", "Mexico", "Brazil", "Las Vegas", "Qatar", "Abu Dhabi"
+]
+
+# --- [7. 사이드바: 커맨드 센터] ---
+with st.sidebar:
+    st.title("🎛️ Command Center")
+    st.caption("Setup your race context")
+    st.divider()
     
-    # 1. 해당 모드의 대화 기록만 가져오기
-    history = st.session_state["chat_history"][mode_name]
+    # 세션 설정
+    st.subheader("📍 Race Session")
+    selected_year = st.selectbox("Year", [2024, 2025], index=0)
+    selected_gp = st.selectbox("Grand Prix", GP_LIST, index=3) # Default: Japan
+    
+    st.divider()
+    
+    # 드라이버 설정 (비교 분석용)
+    st.subheader("⚔️ Driver Battle")
+    col1, col2 = st.columns(2)
+    with col1:
+        driver_1 = st.selectbox("Driver A", DRIVER_LIST, index=DRIVER_LIST.index("VER"))
+    with col2:
+        driver_2 = st.selectbox("Driver B", DRIVER_LIST, index=DRIVER_LIST.index("NOR"))
 
-    # 2. 채팅 기록 출력
-    for msg in history:
+    st.divider()
+    st.info("💡 **Tip:** 왼쪽에서 설정한 값은 '텔레메트리 스튜디오' 탭에 즉시 반영됩니다.")
+
+# --- [8. 메인 탭 구성] ---
+st.title("🏎️ PitWall-AI : Professional Dashboard")
+
+# 탭을 2개로 간소화하여 전문성 강화
+# Tab 1: 채팅 (뉴스, 브리핑, 전략 질문)
+# Tab 2: 시각화 (버튼으로 즉시 그래프 생성)
+tab1, tab2 = st.tabs(["💬 Pit Wall Chat (브리핑/뉴스)", "📈 Telemetry Studio (데이터 분석)"])
+
+# ==============================================================================
+# TAB 1: Chat Interface (Briefing Agent)
+# ==============================================================================
+with tab1:
+    st.caption("경기 결과 요약, 뉴스 검색, 규정 관련 질문은 여기서 하세요.")
+    
+    # 세션 상태 초기화
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Box, Box. PitWall-AI 브리핑 담당관입니다. 무엇을 도와드릴까요?"}
+        ]
+
+    # 대화 기록 출력
+    for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # 3. 입력창 (Key를 모드별로 다르게 줘서 충돌 방지)
-    if prompt := st.chat_input(f"{mode_name} 질문 입력...", key=f"input_{mode_name}"):
-        # 사용자 메시지 즉시 표시
+    # 사용자 입력
+    if prompt := st.chat_input("질문을 입력하세요 (예: 이번 경기 리타이어 누구야?)"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        
-        # 기록에 추가
-        st.session_state["chat_history"][mode_name].append({"role": "user", "content": prompt})
 
-        # 에이전트 호출 및 응답 표시
+        # 에이전트 응답
         with st.chat_message("assistant"):
-            with st.spinner(f"{mode_name} AI 분석 중..."):
+            with st.spinner("데이터베이스 검색 중..."):
                 try:
-                    # 비동기 실행
-                    response = asyncio.run(agent_func(prompt))
+                    # 비동기 함수 실행
+                    response = asyncio.run(run_briefing_agent(prompt))
                     st.markdown(response)
-                    
-                    # 응답 기록에 추가
-                    st.session_state["chat_history"][mode_name].append({"role": "assistant", "content": response})
+                    st.session_state.messages.append({"role": "assistant", "content": response})
                 except Exception as e:
                     st.error(f"에러 발생: {e}")
 
-# --- [6. 탭 구성 및 실행] ---
-st.title("PitWall AI")
-
-# 탭 생성
-tab1, tab2, tab3, tab4 = st.tabs(["레이스 전략 (Strategy)", "서킷 가이드 (Circuit)", "경기 브리핑 (Briefing)", "배틀, 피트인 시뮬레이션 (Simulation)"])
-
-# 각 탭 내부에서 함수 호출
-with tab1:
-    render_tab_content(
-        "Strategy", 
-        run_strategy_agent, 
-        "실시간 랩타임 분석, 드라이버 배틀, 페이스 비교 등 '숫자' 기반 전략을 분석합니다."
-    )
-
+# ==============================================================================
+# TAB 2: Telemetry Studio (Dashboard Interface)
+# ==============================================================================
 with tab2:
-    render_tab_content(
-        "Circuit", 
-        run_circuit_agent, 
-        "서킷의 코너 특성, 타이어 마모도, 다운포스 요구량 등 '기술적 정보'를 제공합니다."
-    )
+    st.markdown(f"### 📊 Analysis Target: {selected_year} {selected_gp}")
+    st.markdown(f"**Comparing:** :red[{driver_1}] vs :orange[{driver_2}]")
+    
+    st.divider()
 
-with tab3:
-    render_tab_content(
-        "Briefing", 
-        run_briefing_agent, 
-        "경기 결과 요약, 리타이어 원인, 주요 이슈 등 '뉴스와 팩트'를 브리핑합니다."
-    )
+    # 3개의 메인 기능을 컬럼으로 배치
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    
+    # 결과 이미지를 보여줄 컨테이너
+    plot_container = st.container()
 
-with tab4:
-    render_tab_content(
-        "Simulation",
-        run_simulation_agent,
-        "드라이버 간 피트 인 전략 분석, 언더컷 성공 여부, 스틴트 연장 손익을 시뮬레이션합니다"
-    )
-# --- [7. 하단 풋터] ---
-st.divider()
-st.caption("Data sources: FastF1 (Telemetry), DuckDuckGo (News), Gemini 2.5 (Reasoning)")
+    # --- 버튼 1: 레이스 페이스 ---
+    with col_btn1:
+        if st.button("📉 Race Pace\n(랩타임 비교)"):
+            with plot_container:
+                with st.spinner("랩타임 데이터 분석 중..."):
+                    result = generate_lap_comparison_plot(selected_year, selected_gp, driver_1, driver_2)
+                    if "GRAPH_GENERATED" in result:
+                        img_path = result.split(": ")[1].strip()
+                        st.image(img_path, caption=f"Race Pace: {driver_1} vs {driver_2}", use_container_width=True)
+                    else:
+                        st.error(result)
+
+    # --- 버튼 2: 트랙 도미넌스 ---
+    with col_btn2:
+        if st.button("🗺️ Track Dominance\n(서킷 지배력)"):
+            with plot_container:
+                with st.spinner("텔레메트리 & 섹터 계산 중..."):
+                    result = generate_track_dominance_plot(selected_year, selected_gp, driver_1, driver_2)
+                    if "GRAPH_GENERATED" in result:
+                        img_path = result.split(": ")[1].strip()
+                        st.image(img_path, caption=f"Track Dominance: {driver_1} vs {driver_2}", use_container_width=True)
+                    else:
+                        st.error(result)
+
+    # --- 버튼 3: 스피드 트레이스 ---
+    with col_btn3:
+        if st.button("📈 Speed Trace\n(최고 속도)"):
+            with plot_container:
+                with st.spinner("속도 데이터 트래킹 중..."):
+                    result = generate_speed_trace_plot(selected_year, selected_gp, driver_1, driver_2)
+                    if "GRAPH_GENERATED" in result:
+                        img_path = result.split(": ")[1].strip()
+                        st.image(img_path, caption=f"Speed Trace: {driver_1} vs {driver_2}", use_container_width=True)
+                    else:
+                        st.error(result)
+
+    st.caption("※ 데이터 출처: FastF1 (Live Telemetry). 첫 로딩 시 캐싱으로 인해 10~20초 소요될 수 있습니다.")

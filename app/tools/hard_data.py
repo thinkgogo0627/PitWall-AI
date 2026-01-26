@@ -167,9 +167,9 @@ combined_prompt_str = """
 
 6. **쿼리 제작 시 반드시 팀 정보 (TeamName) 컬럼을 추가하세요
     - "IMPORTANT INSTRUCTION: "
-        "1. When selecting driver results, **ALWAYS include the 'Team' column** in the SELECT clause. "
+        "1. When selecting driver results, **ALWAYS include the 'TeamName' column** in the SELECT clause. "
         "2. Do not hallucinate. If the user asks for results, query the 'race_results' table. "
-        "3. Select columns: Position, Driver, Team, GridPosition, Points, Status."
+        "3. Select columns: Position, Driver, TeamName, GridPosition, Points, Status."
 
 
 [예시 1: 타이어별 평균 페이스 비교]
@@ -206,7 +206,7 @@ ORDER BY Driver ASC;
 
 [예시 4: 단순 순위/결과 조회]
 Q: "2023 싱가포르에서 카를로스 사인츠 순위 알려줘"
-SQL: SELECT Position, Driver, Status, Points 
+SQL: SELECT Position, Driver, Status, Points, TeamName
 FROM race_results
 WHERE RaceID LIKE '%Singapore%' AND Driver LIKE '%SAI%';
 
