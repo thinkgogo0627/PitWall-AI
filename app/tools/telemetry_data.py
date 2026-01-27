@@ -8,6 +8,7 @@ import os
 import warnings
 import seaborn as sns
 import numpy as np
+import plotly.graph_objects as go
 
 # 경고 무시 및 F1 스타일 설정
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -83,48 +84,56 @@ def _normalize_name(name: str) -> str:
 
 
 # -----------------------------------------------------------------------------
-# 1. 랩타임 비교 그래프 (기존 기능 + 공식 컬러 함수 적용)
+# 1. [Plotly] 랩타임 비교 (Interactive)
 # -----------------------------------------------------------------------------
-def generate_lap_comparison_plot(year: int, race: str, driver1: str, driver2: str) -> str:
+def get_race_pace_data(year: int, race: str, driver1: str, driver2: str):
+    """Plotly용 데이터 객체를 반환합니다."""
     try:
-        driver1 = _normalize_name(driver1)
-        driver2 = _normalize_name(driver2)
-
-        print(f" [Compare] Loading Data: {year} {race} ({driver1} vs {driver2})...")
+        d1_code = _normalize_name(driver1)
+        d2_code = _normalize_name(driver2)
+        
         session = fastf1.get_session(year, race, 'R')
         session.load(telemetry=False, weather=False, messages=False)
 
-        d1_laps = session.laps.pick_drivers(driver1)
-        d2_laps = session.laps.pick_drivers(driver2)
+        d1 = session.laps.pick_driver(d1_code)
+        d2 = session.laps.pick_driver(d2_code)
 
-        if d1_laps.empty or d2_laps.empty:
-            return f" 데이터 부족: {driver1} 혹은 {driver2}의 기록이 없습니다."
+        if d1.empty or d2.empty: return None
 
-        plt.figure(figsize=(10, 6))
-        plt.style.use('dark_background')
+        # Plotly Figure 생성
+        fig = go.Figure()
 
-        # [수정] 공식 함수 사용 (identifier + session)
-        color1 = fastf1.plotting.get_driver_color(driver1, session=session)
-        color2 = fastf1.plotting.get_driver_color(driver2, session=session)
+        # Driver 1
+        c1 = fastf1.plotting.get_driver_color(d1_code, session=session)
+        fig.add_trace(go.Scatter(
+            x=d1['LapNumber'], y=d1['LapTime'].dt.total_seconds(),
+            mode='lines+markers', name=d1_code,
+            line=dict(color=c1, width=2),
+            marker=dict(size=4)
+        ))
 
-        sns.lineplot(x=d1_laps['LapNumber'], y=d1_laps['LapTime'].dt.total_seconds(), 
-                     label=driver1, color=color1, linewidth=2)
-        sns.lineplot(x=d2_laps['LapNumber'], y=d2_laps['LapTime'].dt.total_seconds(), 
-                     label=driver2, color=color2, linewidth=2, linestyle='--')
+        # Driver 2
+        c2 = fastf1.plotting.get_driver_color(d2_code, session=session)
+        fig.add_trace(go.Scatter(
+            x=d2['LapNumber'], y=d2['LapTime'].dt.total_seconds(),
+            mode='lines+markers', name=d2_code,
+            line=dict(color=c2, width=2, dash='dash'),
+            marker=dict(size=4)
+        ))
 
-        plt.title(f"{year} {race} Pace: {driver1} vs {driver2}", fontsize=14, fontweight='bold', color='white')
-        plt.xlabel("Lap Number", color='white')
-        plt.ylabel("Lap Time (s)", color='white')
-        plt.legend()
-        plt.grid(True, alpha=0.2)
-
-        filename = f"{year}_{race}_Pace_{driver1}_vs_{driver2}.png".replace(" ", "_")
-        return _save_plot(filename)
+        fig.update_layout(
+            title=f"{year} {race} Race Pace: {d1_code} vs {d2_code}",
+            xaxis_title="Lap Number",
+            yaxis_title="Lap Time (Seconds)",
+            template="plotly_dark",
+            hovermode="x unified",
+            height=500
+        )
+        return fig
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"Error: {str(e)}"
+        print(f"Error: {e}")
+        return None
 
 # -----------------------------------------------------------------------------
 # 2. [NEW] 트랙 도미넌스 맵 (Track Dominance)
@@ -205,55 +214,54 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
     
 
 # -----------------------------------------------------------------------------
-# 3. [NEW] 스피드 트레이스 (Speed Trace)
+# 3. [Plotly] 스피드 트레이스 (Interactive)
 # -----------------------------------------------------------------------------
-def generate_speed_trace_plot(year: int, race: str, driver1: str, driver2: str) -> str:
+def get_speed_trace_data(year: int, race: str, driver1: str, driver2: str):
+    """Plotly용 스피드 트레이스 객체 반환"""
     try:
-        driver1 = _normalize_name(driver1)
-        driver2 = _normalize_name(driver2)
+        d1_code = _normalize_name(driver1)
+        d2_code = _normalize_name(driver2)
 
-        print(f"📈 [Speed] Tracing: {year} {race} ({driver1} vs {driver2})...")
         session = fastf1.get_session(year, race, 'R')
         session.load(telemetry=True, weather=False, messages=False)
 
-        l1 = session.laps.pick_drivers(driver1).pick_fastest()
-        l2 = session.laps.pick_drivers(driver2).pick_fastest()
-        if l1 is None or l2 is None: return "X 텔레메트리 데이터 부족 X"
+        l1 = session.laps.pick_driver(d1_code).pick_fastest()
+        l2 = session.laps.pick_driver(d2_code).pick_fastest()
+        
+        if l1 is None or l2 is None: return None
 
         t1 = l1.get_telemetry().add_distance()
         t2 = l2.get_telemetry().add_distance()
 
-        plt.figure(figsize=(10, 5))
-        plt.style.use('dark_background')
+        fig = go.Figure()
 
-        c1 = fastf1.plotting.get_driver_color(driver1, session=session)
-        c2 = fastf1.plotting.get_driver_color(driver2, session=session)
+        # Driver 1
+        c1 = fastf1.plotting.get_driver_color(d1_code, session=session)
+        fig.add_trace(go.Scatter(
+            x=t1['Distance'], y=t1['Speed'],
+            mode='lines', name=d1_code,
+            line=dict(color=c1, width=2),
+            hovertemplate='Dist: %{x:.0f}m<br>Speed: %{y:.1f}km/h<extra></extra>'
+        ))
 
-        plt.plot(t1['Distance'], t1['Speed'], color=c1, label=driver1, linewidth=2)
-        plt.plot(t2['Distance'], t2['Speed'], color=c2, label=driver2, linewidth=2, linestyle='--')
+        # Driver 2
+        c2 = fastf1.plotting.get_driver_color(d2_code, session=session)
+        fig.add_trace(go.Scatter(
+            x=t2['Distance'], y=t2['Speed'],
+            mode='lines', name=d2_code,
+            line=dict(color=c2, width=2, dash='solid'), # 점선보다는 실선 비교가 인터랙티브에선 나음
+            hovertemplate='Dist: %{x:.0f}m<br>Speed: %{y:.1f}km/h<extra></extra>'
+        ))
 
-        plt.title(f"{year} {race} Speed Trace: {driver1} vs {driver2}", color='white', fontweight='bold')
-        plt.xlabel("Distance (m)", color='white')
-        plt.ylabel("Speed (km/h)", color='white')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-
-        return _save_plot(f"{year}_{race}_Speed_{driver1}_vs_{driver2}.png")
-    except Exception as e: return f"Error: {e}"
-
-# 내부 저장 헬퍼 함수
-def _save_plot(filename):
-    if not os.path.exists(PLOT_DIR):
-        os.makedirs(PLOT_DIR, exist_ok=True)
-    
-    save_path = os.path.join(PLOT_DIR, filename)
-    plt.savefig(save_path, dpi=100, bbox_inches='tight', facecolor='black')
-    plt.close()
-    print(f" 그래프 저장 완료: {save_path}")
-    return f"GRAPH_GENERATED: {save_path}"
-
-# 테스트
-if __name__ == "__main__":
-    # 도미넌스 맵 테스트 (2024 마이애미: 베르스타펜 vs 노리스)
-    print(generate_track_dominance_plot(2025, "Miami", "VER", "NOR"))
-    print(generate_lap_comparison_plot(2025, "Miami", "VER", "NOR"))
+        fig.update_layout(
+            title=f"{year} {race} Speed Trace (Fastest Lap): {d1_code} vs {d2_code}",
+            xaxis_title="Distance (m)",
+            yaxis_title="Speed (km/h)",
+            template="plotly_dark",
+            hovermode="x unified", # 마우스 올리면 둘 다 비교
+            height=500
+        )
+        return fig
+    except Exception as e:
+        print(f"Error: {e}")
+        return None

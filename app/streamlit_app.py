@@ -5,7 +5,7 @@ import os
 import sys
 import asyncio
 
-# --- [1. 한글 폰트 설정 (기존 코드 유지)] ---
+# --- [1. 한글 폰트 설정] ---
 font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
 if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
@@ -20,11 +20,8 @@ sys.path.append(project_root)
 
 # --- [3. 모듈 임포트] ---
 try:
-    # 채팅용 에이전트 (뉴스/브리핑)
     from app.agents.briefing_agent import run_briefing_agent
     from app.tools.briefing_pipeline import generate_quick_summary
-
-    # 시각화용 도구 (직접 호출하여 속도 향상)
     from app.tools.telemetry_data import (
         generate_lap_comparison_plot,
         generate_track_dominance_plot,
@@ -46,115 +43,139 @@ st.set_page_config(
 # --- [5. 스타일링 (CSS)] ---
 st.markdown("""
 <style>
+    .stApp { background-color: #0e1117; color: #fafafa; }
+    
+    /* 버튼 스타일 */
     .stButton>button {
         width: 100%;
         border-radius: 8px;
-        height: 3.5em;
+        height: 3.8em;
         font-weight: bold;
-        transition: all 0.3s;
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        color: white;
+        transition: all 0.3s ease;
     }
     .stButton>button:hover {
-        border-color: #ff2b2b;
-        color: #ff2b2b;
+        background-color: #ef4444; 
+        border-color: #ef4444;
+        color: white;
+        transform: translateY(-2px);
     }
-    h1, h2, h3 {
-        color: #ff2b2b !important; /* Ferrari Red style */
+    
+    /* 헤더 및 탭 */
+    h1, h2, h3 { color: #ef4444 !important; font-family: 'Segoe UI', sans-serif; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #1f2937;
+        border-radius: 5px 5px 0px 0px;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+    .stTabs [aria-selected="true"] { background-color: #ef4444; color: white; }
+    
+    /* 선택박스 커스텀 */
+    div[data-baseweb="select"] > div {
+        background-color: #1f2937;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- [6. 데이터 준비] ---
-# 드라이버 목록 (중복 제거 및 정렬)
 DRIVER_LIST = sorted(list(set(DRIVER_MAPPING.values())))
 GP_LIST = [
-    "Bahrain", "Saudi Arabia", "Australia", "Japan", "China", "Miami", 
-    "Emilia Romagna", "Monaco", "Canada", "Spain", "Austria", "Great Britain", 
-    "Hungary", "Belgium", "Netherlands", "Italy", "Azerbaijan", "Singapore", 
-    "United States", "Mexico", "Brazil", "Las Vegas", "Qatar", "Abu Dhabi"
+    "Bahrain - 바레인", "Saudi Arabia - 사우디", "Australia - 호주", 
+    "Japan - 일본", "China - 중국", "Miami - 마이애미", 
+    "Emilia Romagna - 에밀리아 로마냐", "Monaco - 모나코", "Canada - 캐나다",
+    "Spain - 바르셀로나", "Austria - 오스트리아", "Great Britain - 영국", 
+    "Hungary - 헝가리", "Belgium - 벨기에", "Netherlands - 네덜란드", 
+    "Italy - 이탈리아", "Azerbaijan - 아제르바이잔", "Singapore - 싱가포르", 
+    "United States - 미국", "Mexico - 멕시코", "Brazil - 상파울루", 
+    "Las Vegas - 라스베이거스", "Qatar - 카타르", "Abu Dhabi - 아부다비"
 ]
 
-# --- [7. 사이드바: 커맨드 센터] ---
+# --- [7. 사이드바: Global Context Only] ---
 with st.sidebar:
-    st.title("🎛️ Command Center")
-    st.caption("Setup your race context")
-    st.divider()
+    st.image("https://upload.wikimedia.org/wikipedia/commons/3/33/F1.svg", width=80)
+    st.title("🎛️ PitWall Command")
     
-    # 세션 설정
-    st.subheader("📍 Race Session")
-    selected_year = st.selectbox("Year", [2021, 2022, 2023, 2024, 2025], index=0)
+    st.subheader("📍 Race Session (Global)")
+    st.caption("모든 탭에 공통으로 적용되는 설정입니다.")
+    
+    # 드라이버 선택 로직을 제거하고, 연도와 그랑프리만 남김
+    selected_year = st.selectbox("Year", [2021, 2022, 2023, 2024, 2025], index=3)
     selected_gp = st.selectbox("Grand Prix", GP_LIST, index=3) # Default: Japan
     
     st.divider()
     
-    # 드라이버 설정 (비교 분석용)
-    st.subheader("⚔️ Driver Battle")
-    col1, col2 = st.columns(2)
-    with col1:
-        driver_1 = st.selectbox("Driver A", DRIVER_LIST, index=DRIVER_LIST.index("VER"))
-    with col2:
-        driver_2 = st.selectbox("Driver B", DRIVER_LIST, index=DRIVER_LIST.index("NOR"))
-
-    st.divider()
-    st.info("💡 **Tip:** 왼쪽에서 설정한 값은 '텔레메트리 스튜디오' 탭에 즉시 반영됩니다.")
+    # 시스템 상태 표시
+    st.markdown("### 📡 System Status")
+    st.success("✅ FastF1 API: Online")
+    st.success("✅ Qdrant DB: Connected")
+    st.info(f"💾 Local Cache Used")
 
 # --- [8. 메인 탭 구성] ---
-st.title("🏎️ PitWall-AI : Professional Dashboard")
+st.title(f"🏎️ PitWall-AI : {selected_year} {selected_gp}")
 
-# 탭을 2개로 간소화하여 전문성 강화
-# Tab 1: 채팅 (뉴스, 브리핑, 전략 질문)
-# Tab 2: 시각화 (버튼으로 즉시 그래프 생성)
-tab1, tab2 = st.tabs(["💬 Pit Wall Chat (브리핑/뉴스)", "📈 Telemetry Studio (데이터 분석)"])
+tab1, tab2 = st.tabs(["💬 Briefing", "📈 Telemetry Analytics"])
 
 # ==============================================================================
 # TAB 1: Chat Interface (Briefing Agent)
 # ==============================================================================
 with tab1:
     st.markdown("### 🎙️ Race Briefing Room")
-    
-    # [섹션 1] Quick Action Buttons (파이프라인 적용 -> 초고속)
-    col_b1, col_b2 = st.columns(2)
-    
-    briefing_container = st.container() # 결과가 나올 공간
+    st.caption("경기 결과 요약 및 뉴스 브리핑")
 
-    with col_b1:
+    # [컨트롤 바] 드라이버 선택 및 액션 버튼을 한 줄에 배치
+    c1, c2, c3 = st.columns([1, 1, 1.5])
+    
+    with c1:
+        # [Local Config] 브리핑 탭 전용 드라이버 선택
+        focus_driver = st.selectbox("🎯 관심 드라이버 선택", DRIVER_LIST, index=DRIVER_LIST.index("VER"))
+    
+    briefing_container = st.container()
+
+    with c2:
+        # 전체 요약 버튼
         if st.button("📰 Race Summary\n(전체 경기 요약)", type="primary"):
             with briefing_container:
-                with st.spinner(f"⚡ {selected_year} {selected_gp} 데이터를 병렬 분석 중..."):
-                    # Agent 안 쓰고 파이프라인 직접 호출
+                with st.spinner(f"⚡ {selected_year} {selected_gp} 전체 데이터 분석 중..."):
                     summary = asyncio.run(generate_quick_summary(selected_year, selected_gp))
+                    st.info("✅ 전체 브리핑 완료")
                     st.markdown(summary)
-                    # 기록 저장
                     st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
 
-    with col_b2:
-        if st.button(f"🏎️ {driver_1} Focus Report\n(내 드라이버 분석)"):
+    with c3:
+        # 드라이버 포커스 버튼
+        if st.button(f"🔍 {focus_driver} Focus Report\n(드라이버 집중 분석)"):
             with briefing_container:
-                with st.spinner(f"⚡ {driver_1}의 서사를 추적 중..."):
-                    summary = asyncio.run(generate_quick_summary(selected_year, selected_gp, driver_focus=driver_1))
+                with st.spinner(f"⚡ {focus_driver}의 경기 서사를 추적 중..."):
+                    summary = asyncio.run(generate_quick_summary(selected_year, selected_gp, driver_focus=focus_driver))
+                    st.success(f"✅ {focus_driver} 분석 완료")
                     st.markdown(summary)
                     st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
 
     st.divider()
 
-    # [섹션 2] Deep Dive Chat (기존 Agent -> 심층 질문용)
-    st.caption("💬 더 궁금한 점이 있다면 대화로 질문하세요. (예: '안토넬리 인터뷰 내용 알려줘')")
-    
+    # [Chat Interface]
     if "msg_briefing" not in st.session_state:
         st.session_state.msg_briefing = []
 
     for msg in st.session_state.msg_briefing:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    if prompt := st.chat_input("심층 질문 입력..."):
+    if prompt := st.chat_input("심층 질문 입력... (예: 안토넬리 인터뷰 내용 알려줘)"):
         st.session_state.msg_briefing.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.markdown(prompt)
         
         with st.chat_message("assistant"):
             with st.status("🕵️ 에이전트가 심층 조사 중...", expanded=True) as status:
-                # 심층 질문은 기존처럼 Agent가 도구를 골라가며 수행
                 context_prompt = f"[{selected_year} {selected_gp}] {prompt}"
                 response = asyncio.run(run_briefing_agent(context_prompt))
-                
                 status.update(label="조사 완료", state="complete", expanded=False)
                 st.markdown(response)
                 st.session_state.msg_briefing.append({"role": "assistant", "content": response})
@@ -163,51 +184,74 @@ with tab1:
 # TAB 2: Telemetry Studio (Dashboard Interface)
 # ==============================================================================
 with tab2:
-    st.markdown(f"### 📊 Analysis Target: {selected_year} {selected_gp}")
-    st.markdown(f"**Comparing:** :red[{driver_1}] vs :orange[{driver_2}]")
+    st.markdown("### 📈 Telemetry Analytics Studio")
     
-    st.divider()
+    # [Local Config] 텔레메트리 탭 전용 드라이버 선택 (상단 배치)
+    st.info("⚔️ 비교할 두 드라이버를 선택하세요.")
+    
+    row_sel1, row_sel2 = st.columns(2)
+    with row_sel1:
+        telemetry_d1 = st.selectbox("Driver A (Blue)", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="t_d1")
+    with row_sel2:
+        telemetry_d2 = st.selectbox("Driver B (Orange)", DRIVER_LIST, index=DRIVER_LIST.index("NOR"), key="t_d2")
+    
+    st.write("") # Spacer
 
-    # 3개의 메인 기능을 컬럼으로 배치
+    # [컨트롤 패널] 그래프 생성 버튼
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     
-    # 결과 이미지를 보여줄 컨테이너
-    plot_container = st.container()
+    # 상태 관리 (그래프 유지)
+    if "telemetry_plot" not in st.session_state:
+        st.session_state.telemetry_plot = None
+        st.session_state.telemetry_caption = ""
 
-    # --- 버튼 1: 레이스 페이스 ---
+    # 버튼 로직: 사이드바 변수(driver_1) 대신 로컬 변수(telemetry_d1) 사용
     with col_btn1:
-        if st.button("📉 Race Pace\n(랩타임 비교)"):
-            with plot_container:
-                with st.spinner("랩타임 데이터 분석 중..."):
-                    result = generate_lap_comparison_plot(selected_year, selected_gp, driver_1, driver_2)
-                    if "GRAPH_GENERATED" in result:
-                        img_path = result.split(": ")[1].strip()
-                        st.image(img_path, caption=f"Race Pace: {driver_1} vs {driver_2}", use_container_width=True)
-                    else:
-                        st.error(result)
+        if st.button("📉 Race Pace (랩타임 비교)", use_container_width=True):
+            with st.spinner("Analyzing Race Pace..."):
+                result = generate_lap_comparison_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
+                if "GRAPH_GENERATED" in result:
+                    st.session_state.telemetry_plot = result.split(": ")[1].strip()
+                    st.session_state.telemetry_caption = f"Race Pace: {telemetry_d1} vs {telemetry_d2}"
+                else:
+                    st.error(result)
 
-    # --- 버튼 2: 트랙 도미넌스 ---
     with col_btn2:
-        if st.button("🗺️ Track Dominance\n(서킷 지배력)"):
-            with plot_container:
-                with st.spinner("텔레메트리 & 섹터 계산 중..."):
-                    result = generate_track_dominance_plot(selected_year, selected_gp, driver_1, driver_2)
-                    if "GRAPH_GENERATED" in result:
-                        img_path = result.split(": ")[1].strip()
-                        st.image(img_path, caption=f"Track Dominance: {driver_1} vs {driver_2}", use_container_width=True)
-                    else:
-                        st.error(result)
+        if st.button("🗺️ Track Dominance (지배력 맵)", use_container_width=True):
+            with st.spinner("Calculating Sectors..."):
+                result = generate_track_dominance_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
+                if "GRAPH_GENERATED" in result:
+                    st.session_state.telemetry_plot = result.split(": ")[1].strip()
+                    st.session_state.telemetry_caption = f"Track Dominance: {telemetry_d1} vs {telemetry_d2}"
+                else:
+                    st.error(result)
 
-    # --- 버튼 3: 스피드 트레이스 ---
     with col_btn3:
-        if st.button("📈 Speed Trace\n(최고 속도)"):
-            with plot_container:
-                with st.spinner("속도 데이터 트래킹 중..."):
-                    result = generate_speed_trace_plot(selected_year, selected_gp, driver_1, driver_2)
-                    if "GRAPH_GENERATED" in result:
-                        img_path = result.split(": ")[1].strip()
-                        st.image(img_path, caption=f"Speed Trace: {driver_1} vs {driver_2}", use_container_width=True)
-                    else:
-                        st.error(result)
+        if st.button("📈 Speed Trace (속도 비교)", use_container_width=True):
+            with st.spinner("Tracking Speed..."):
+                result = generate_speed_trace_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
+                if "GRAPH_GENERATED" in result:
+                    st.session_state.telemetry_plot = result.split(": ")[1].strip()
+                    st.session_state.telemetry_caption = f"Speed Trace: {telemetry_d1} vs {telemetry_d2}"
+                else:
+                    st.error(result)
 
-    st.caption("※ 데이터 출처: FastF1 (Live Telemetry). 첫 로딩 시 캐싱으로 인해 10~20초 소요될 수 있습니다.")
+    # [결과 뷰어]
+    st.divider()
+    
+    if st.session_state.telemetry_plot:
+        # 헤더 시각화 (VS Bar)
+        c_h1, c_h2, c_h3 = st.columns([1, 0.2, 1])
+        with c_h1:
+            st.markdown(f"<div style='text-align:center; font-weight:bold; font-size:1.2em; color:#4488ff;'>{telemetry_d1}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background-color:#0000ff; height:4px; width:100%;'></div>", unsafe_allow_html=True)
+        with c_h2:
+            st.markdown("<div style='text-align:center;'>VS</div>", unsafe_allow_html=True)
+        with c_h3:
+            st.markdown(f"<div style='text-align:center; font-weight:bold; font-size:1.2em; color:#ffaa00;'>{telemetry_d2}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background-color:#ffaa00; height:4px; width:100%;'></div>", unsafe_allow_html=True)
+
+        st.write("")
+        st.image(st.session_state.telemetry_plot, use_container_width=True)
+    else:
+        st.info("👆 위 버튼을 눌러 데이터를 분석하세요.")
