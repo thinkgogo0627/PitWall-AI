@@ -1,6 +1,7 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import plotly.graph_objects as go
 import os
 import sys
 import asyncio
@@ -23,11 +24,11 @@ try:
     from app.agents.briefing_agent import run_briefing_agent
     from app.tools.briefing_pipeline import generate_quick_summary
     from app.tools.telemetry_data import (
-        generate_lap_comparison_plot,
-        generate_track_dominance_plot,
-        generate_speed_trace_plot,
-        DRIVER_MAPPING
-    )
+    generate_track_dominance_plot, # 기존 (이미지)
+    get_race_pace_data,            # 신규 (Plotly)
+    get_speed_trace_data,          # 신규 (Plotly)
+    DRIVER_MAPPING
+)
 except ImportError as e:
     st.error(f"모듈 로드 실패: {e}")
     st.stop()
@@ -97,6 +98,30 @@ GP_LIST = [
     "United States - 미국", "Mexico - 멕시코", "Brazil - 상파울루", 
     "Las Vegas - 라스베이거스", "Qatar - 카타르", "Abu Dhabi - 아부다비"
 ]
+
+
+TELEMETRY_TIPS = {
+    "Race Pace": """
+    **📊 페이스 차트 읽는 법:**
+    * **그래프가 우상향:** 타이어 마모(Degradation)로 인해 랩타임이 느려지고 있습니다. 기울기가 완만할수록 타이어 관리를 잘하는 것입니다.
+    * **급격한 하락:** 피트스톱 후 새 타이어를 장착했을 때 발생합니다.
+    * **일관성:** 그래프가 톱니바퀴 없이 평평할수록 드라이버가 '메트로놈'처럼 꾸준하게 달린 것입니다.
+    """,
+
+    "Track Dominance": """
+    **🗺️ 지배력 맵 읽는 법:**
+    * **직선 구간 색상:** 해당 드라이버의 **Top Speed(엔진 출력/DRS/공기저항)**가 더 빠릅니다.
+    * **코너 구간 색상:** 해당 드라이버의 **Downforce(접지력)**나 **코너링 스킬**이 우세합니다.
+    * 예: 레드불(VER)은 보통 직선과 고속 코너에서, 맥라렌(NOR)은 중저속 코너에서 강한 경향이 있습니다.
+    """,
+
+    "Speed Trace": """
+    **📈 스피드 트레이스 읽는 법:**
+    * **Valleys (계곡):** 그래프가 푹 꺼지는 곳이 코너입니다. 더 깊게 꺼지면 감속을 많이 한 것입니다 (저속 코너).
+    * **Braking Point:** 그래프가 꺾이기 시작하는 지점입니다. 누가 더 늦게 브레이크를 밟는지(Late Braking) 비교해보세요.
+    * **Apex Speed:** 계곡의 가장 밑바닥 점입니다. 코너링 최소 속도가 높을수록 다운포스가 좋거나 드라이버가 과감한 것입니다.
+    """
+}
 
 # --- [7. 사이드바: Global Context Only] ---
 with st.sidebar:
@@ -185,8 +210,6 @@ with tab1:
 # ==============================================================================
 with tab2:
     st.markdown("### 📈 Telemetry Analytics Studio")
-    
-    # [Local Config] 텔레메트리 탭 전용 드라이버 선택 (상단 배치)
     st.info("⚔️ 비교할 두 드라이버를 선택하세요.")
     
     row_sel1, row_sel2 = st.columns(2)
@@ -195,52 +218,48 @@ with tab2:
     with row_sel2:
         telemetry_d2 = st.selectbox("Driver B (Orange)", DRIVER_LIST, index=DRIVER_LIST.index("NOR"), key="t_d2")
     
-    st.write("") # Spacer
+    st.write("") 
 
-    # [컨트롤 패널] 그래프 생성 버튼
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     
-    # 상태 관리 (그래프 유지)
-    if "telemetry_plot" not in st.session_state:
-        st.session_state.telemetry_plot = None
+    if "telemetry_fig" not in st.session_state:
+        st.session_state.telemetry_fig = None
+        st.session_state.telemetry_type = None
         st.session_state.telemetry_caption = ""
 
-    # 버튼 로직: 사이드바 변수(driver_1) 대신 로컬 변수(telemetry_d1) 사용
     with col_btn1:
-        if st.button("📉 Race Pace (랩타임 비교)", use_container_width=True):
+        if st.button("📉 Race Pace (Interactive)", use_container_width=True):
             with st.spinner("Analyzing Race Pace..."):
-                result = generate_lap_comparison_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
-                if "GRAPH_GENERATED" in result:
-                    st.session_state.telemetry_plot = result.split(": ")[1].strip()
-                    st.session_state.telemetry_caption = f"Race Pace: {telemetry_d1} vs {telemetry_d2}"
+                fig = get_race_pace_data(selected_year, selected_gp, telemetry_d1, telemetry_d2)
+                if fig:
+                    st.session_state.telemetry_fig = fig
+                    st.session_state.telemetry_type = "Race Pace"
                 else:
-                    st.error(result)
+                    st.error("데이터 부족")
 
     with col_btn2:
-        if st.button("🗺️ Track Dominance (지배력 맵)", use_container_width=True):
+        if st.button("🗺️ Track Dominance (Map)", use_container_width=True):
             with st.spinner("Calculating Sectors..."):
-                result = generate_track_dominance_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
-                if "GRAPH_GENERATED" in result:
-                    st.session_state.telemetry_plot = result.split(": ")[1].strip()
-                    st.session_state.telemetry_caption = f"Track Dominance: {telemetry_d1} vs {telemetry_d2}"
+                path = generate_track_dominance_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
+                if "GRAPH_GENERATED" in path:
+                    st.session_state.telemetry_fig = path.split(": ")[1].strip()
+                    st.session_state.telemetry_type = "Track Dominance"
                 else:
-                    st.error(result)
+                    st.error(path)
 
     with col_btn3:
-        if st.button("📈 Speed Trace (속도 비교)", use_container_width=True):
+        if st.button("📈 Speed Trace (Interactive)", use_container_width=True):
             with st.spinner("Tracking Speed..."):
-                result = generate_speed_trace_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
-                if "GRAPH_GENERATED" in result:
-                    st.session_state.telemetry_plot = result.split(": ")[1].strip()
-                    st.session_state.telemetry_caption = f"Speed Trace: {telemetry_d1} vs {telemetry_d2}"
+                fig = get_speed_trace_data(selected_year, selected_gp, telemetry_d1, telemetry_d2)
+                if fig:
+                    st.session_state.telemetry_fig = fig
+                    st.session_state.telemetry_type = "Speed Trace"
                 else:
-                    st.error(result)
+                    st.error("데이터 부족")
 
-    # [결과 뷰어]
     st.divider()
     
-    if st.session_state.telemetry_plot:
-        # 헤더 시각화 (VS Bar)
+    if st.session_state.telemetry_fig:
         c_h1, c_h2, c_h3 = st.columns([1, 0.2, 1])
         with c_h1:
             st.markdown(f"<div style='text-align:center; font-weight:bold; font-size:1.2em; color:#4488ff;'>{telemetry_d1}</div>", unsafe_allow_html=True)
@@ -252,6 +271,15 @@ with tab2:
             st.markdown(f"<div style='background-color:#ffaa00; height:4px; width:100%;'></div>", unsafe_allow_html=True)
 
         st.write("")
-        st.image(st.session_state.telemetry_plot, use_container_width=True)
+        
+        if st.session_state.telemetry_type == "Track Dominance":
+            st.image(st.session_state.telemetry_fig, use_container_width=True)
+        else:
+            st.plotly_chart(st.session_state.telemetry_fig, use_container_width=True)
+        
+        # 💡 [Analysis Tip] 하단에 깔끔한 가이드 표시
+        st.info(f"💡 **Analysis Insight: {st.session_state.telemetry_type}**")
+        st.markdown(TELEMETRY_TIPS.get(st.session_state.telemetry_type, ""))
+            
     else:
         st.info("👆 위 버튼을 눌러 데이터를 분석하세요.")

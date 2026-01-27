@@ -81,7 +81,16 @@ def _normalize_name(name: str) -> str:
     # 매핑에 없으면 그냥 3글자로 자르고 대문자로 (FastF1이 알아서 처리하길 기대)
     return clean_name.upper()[:3]
 
-
+def _save_plot(filename, facecolor='black'):
+    if not os.path.exists(PLOT_DIR):
+        os.makedirs(PLOT_DIR, exist_ok=True)
+    
+    save_path = os.path.join(PLOT_DIR, filename)
+    # Matplotlib 저장
+    plt.savefig(save_path, dpi=100, bbox_inches='tight', facecolor=facecolor)
+    plt.close()
+    print(f"✅ 그래프 저장 완료: {save_path}")
+    return f"GRAPH_GENERATED: {save_path}"
 
 # -----------------------------------------------------------------------------
 # 1. [Plotly] 랩타임 비교 (Interactive)
