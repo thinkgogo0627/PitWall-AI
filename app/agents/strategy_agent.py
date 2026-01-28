@@ -162,6 +162,10 @@ def build_strategy_agent():
 
     - Olliver Bearman (올리버 베어만, BEA): 87
 
+    - Sergio Perez (세르히오 페레즈 , PER): 11
+
+    - Valtteri Bottas (발테리 보타스, BOT): 77
+
     """
     
     tools = [sql_tool, strategy_tool,
