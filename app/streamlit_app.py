@@ -5,6 +5,10 @@ import plotly.graph_objects as go
 import os
 import sys
 import asyncio
+import pandas as pd
+
+import fastf1
+import fastf1.plotting
 
 # --- [1. 한글 폰트 설정] ---
 font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
@@ -23,6 +27,7 @@ sys.path.append(project_root)
 try:
     from app.agents.briefing_agent import run_briefing_agent
     from app.tools.briefing_pipeline import generate_quick_summary
+    from app.agents.strategy_agent import run_strategy_agent
     from app.tools.telemetry_data import (
     generate_track_dominance_plot, # 기존 (이미지)
     get_race_pace_data,            # 신규 (Plotly)
@@ -123,6 +128,100 @@ TELEMETRY_TIPS = {
     """
 }
 
+
+PIRELLI_COLORS = {
+    "SOFT": "#FF3333", "MEDIUM": "#FFF200", "HARD": "#EBEBEB",
+    "INTERMEDIATE": "#39B54A", "WET": "#00AEEF", "UNKNOWN": "#808080"
+}
+
+
+# --- [6-1. 내부 헬퍼 함수: 전체 스틴트 시각화] ---
+@st.cache_data(ttl=3600)
+def get_all_drivers_stint_data(year, gp):
+    """전체 드라이버의 스틴트 정보를 가져옵니다."""
+    try:
+        session = fastf1.get_session(year, gp, 'R')
+        session.load(laps=True, telemetry=False, weather=False, messages=False)
+        
+        stints_list = []
+        # 순위대로 정렬 (우승자가 맨 위로 오게)
+        drivers = session.results['Abbreviation'].tolist()
+        
+        for drv in drivers:
+            laps = session.laps.pick_driver(drv)
+            if laps.empty: continue
+            
+            # 스틴트별 그룹화
+            laps['Stint'] = laps['Stint'].fillna(1).astype(int)
+            for stint_id, data in laps.groupby('Stint'):
+                compound = data['Compound'].iloc[0]
+                start_lap = data['LapNumber'].min()
+                end_lap = data['LapNumber'].max()
+                
+                # 타이어 상태 추정 (Stint 시작 시 TyreLife가 1.0 이하면 New, 아니면 Used)
+                tyre_life_start = data['TyreLife'].iloc[0]
+                is_new = True if tyre_life_start <= 2.0 else False
+                
+                stints_list.append({
+                    "Driver": drv,
+                    "Stint": stint_id,
+                    "Compound": str(compound).upper(),
+                    "Start": start_lap,
+                    "End": end_lap,
+                    "Duration": end_lap - start_lap,
+                    "Status": "NEW" if is_new else "USED"
+                })
+        return pd.DataFrame(stints_list), drivers
+    except Exception as e:
+        return pd.DataFrame(), []
+
+
+def plot_tire_strategy_chart(df, sorted_drivers):
+    """Plotly를 사용하여 Pirelli 스타일의 가로형 차트를 그립니다."""
+    fig = go.Figure()
+    
+    # Y축 순서를 경기 결과 역순으로 (우승자가 맨 위)
+    y_order = list(reversed(sorted_drivers))
+    
+    for _, row in df.iterrows():
+        color = PIRELLI_COLORS.get(row['Compound'], "#808080")
+        pattern = "" if row['Status'] == "NEW" else "/" # Used는 빗금
+        
+        fig.add_trace(go.Bar(
+            y=[row['Driver']],
+            x=[row['Duration']],
+            base=[row['Start']],
+            orientation='h',
+            marker=dict(
+                color=color,
+                line=dict(color='black', width=1),
+                pattern_shape=pattern 
+            ),
+            name=row['Compound'],
+            showlegend=False,
+            hovertemplate=f"<b>{row['Driver']}</b><br>{row['Compound']} ({row['Status']})<br>Laps: {row['Start']}-{row['End']}<extra></extra>"
+        ))
+
+    fig.update_layout(
+        title="🏁 Tire Strategy Overview (Stint Map)",
+        template="plotly_dark",
+        barmode='stack',
+        yaxis=dict(categoryorder='array', categoryarray=y_order),
+        xaxis=dict(title="Lap Number", dtick=5),
+        height=700, # 드라이버 20명이므로 길게
+        margin=dict(l=20, r=20, t=50, b=20),
+        showlegend=False
+    )
+    
+    # 범례(Legend) 수동 추가 (Fake Traces)
+    for name, color in PIRELLI_COLORS.items():
+        if name in df['Compound'].unique():
+            fig.add_trace(go.Bar(x=[0], y=[y_order[0]], marker_color=color, name=name, showlegend=True, visible='legendonly'))
+            
+    return fig
+
+
+
 # --- [7. 사이드바: Global Context Only] ---
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/3/33/F1.svg", width=80)
@@ -146,7 +245,7 @@ with st.sidebar:
 # --- [8. 메인 탭 구성] ---
 st.title(f"🏎️ PitWall-AI : {selected_year} {selected_gp}")
 
-tab1, tab2 = st.tabs(["💬 Briefing", "📈 Telemetry Analytics"])
+tab1, tab2, tab3 = st.tabs(["💬 Briefing", "📈 Telemetry Analytics" , "🧠 Strategy Center"])
 
 # ==============================================================================
 # TAB 1: Chat Interface (Briefing Agent)
@@ -283,3 +382,80 @@ with tab2:
             
     else:
         st.info("👆 위 버튼을 눌러 데이터를 분석하세요.")
+
+
+# ==============================================================================
+# TAB 3: Strategy Center (New!)
+# ==============================================================================
+with tab3:
+    st.markdown("### 🧠 Race Strategy Analysis")
+    
+    # 1. [Primary View] 전체 드라이버 타이어 스틴트 시각화
+    with st.spinner(f"📡 Fetching Strategy Data for {selected_year} {selected_gp}..."):
+        stint_df, drivers_sorted = get_all_drivers_stint_data(selected_year, selected_gp)
+        
+    if not stint_df.empty:
+        st.caption("가로축: 랩(Lap) / 세로축: 드라이버 (위에서부터 1위) / 색상: 타이어 종류")
+        fig = plot_tire_strategy_chart(stint_df, drivers_sorted)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.error("데이터를 불러올 수 없습니다. (세션이 존재하지 않거나 데이터 누락)")
+
+    st.divider()
+
+    # 2. [Deep Dive] 드라이버별 심층 분석 컨트롤러
+    st.markdown("#### 🕵️ Deep Dive: Driver Strategy Audit")
+    
+    # 드라이버 선택 (Tab 3 전용)
+    c_sel, _ = st.columns([1, 2])
+    with c_sel:
+        strategy_driver = st.selectbox("분석 대상 드라이버 선택", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="strat_drv")
+
+    # 분석 액션 버튼 (3 Categories)
+    col_s1, col_s2, col_s3 = st.columns(3)
+    
+    # 결과 출력 컨테이너
+    strategy_container = st.container()
+
+    with col_s1:
+        if st.button("🚦 Traffic & Pace\n(트래픽/페이스 분석)", use_container_width=True):
+            with strategy_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"🔍 {strategy_driver}의 트래픽과 순수 페이스를 분리 분석 중..."):
+                        # Step 1 유도 프롬프트
+                        prompt = f"2025 {selected_gp}에서 {strategy_driver}의 '트래픽 분석(Step 1)'을 중점적으로 수행해줘. 트래픽에 갇힌 랩과 클린 에어에서의 페이스 차이를 숫자로 비교해."
+                        res = asyncio.run(run_strategy_agent(prompt))
+                        st.markdown(res)
+
+    with col_s2:
+        if st.button("🛞 Tire Degradation\n(타이어 마모도/수명)", use_container_width=True):
+            with strategy_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"📉 {strategy_driver}의 타이어 수명과 관리 능력을 평가 중..."):
+                        # Step 2 유도 프롬프트 (스틴트 길이 평가 포함)
+                        prompt = f"2025 {selected_gp}에서 {strategy_driver}의 '타이어 관리(Step 2)'를 분석해줘. 특히 스틴트 길이(Type)를 보고 타이어를 얼마나 오래 썼는지(Extreme/Long Run) 평가해줘."
+                        res = asyncio.run(run_strategy_agent(prompt))
+                        st.markdown(res)
+
+    with col_s3:
+        if st.button("📝 Full Strategy Report\n(전체 전략 평가)", type="primary", use_container_width=True):
+            with strategy_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"🧠 {strategy_driver}의 전체 레이스 운영을 복기하는 중..."):
+                        # Step 4 종합 평가
+                        prompt = f"2025 {selected_gp} {strategy_driver}의 전체 전략을 4단계(트래픽, 타이어, 피트스탑, 종합)로 완벽하게 분석해줘."
+                        res = asyncio.run(run_strategy_agent(prompt))
+                        st.markdown(res)
+
+    # 3. [Simulation Form] (기존 기능 유지 - 하단 배치)
+    with st.expander("🎲 What-If Simulation Lab (가상 시뮬레이션)", expanded=False):
+        st.caption("가상의 시나리오를 설정하여 전략 변화를 예측합니다.")
+        with st.form("sim_form"):
+            c1, c2, c3 = st.columns(3)
+            with c1: target_lap = st.number_input("Pit Lap", 1, 70, 20)
+            with c2: tire_choice = st.selectbox("New Tire", ["SOFT", "MEDIUM", "HARD"])
+            with c3: rival_gap = st.number_input("Gap to Rival (sec)", 0.0, 60.0, 2.5)
+            
+            submit_sim = st.form_submit_button("🚀 Run Simulation")
+            if submit_sim:
+                st.info("시뮬레이션 기능은 현재 유지보수 중입니다. (Agent 4 연결 필요)")
