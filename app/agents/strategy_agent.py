@@ -20,6 +20,9 @@ from data_pipeline.analytics import (
     calculate_tire_degradation # 핵심: 타이어 마모도 분석
 )
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, retry_if_exception_type
+from google.genai.errors import ServerError, ClientError
+
 load_dotenv()
 Settings.llm = GoogleGenAI(model="models/gemini-2.0-flash", api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -121,15 +124,24 @@ def build_strategy_agent():
     
     
     system_prompt = f"""
-    당신은 F1 팀의 수석 전략 엔지니어(Chief Strategy Officer)입니다.
-    사용자의 질문에 대해 오직 **데이터와 수치(랩타임, 타이어 수명, 피트스탑 타이밍)**에 근거해서만 답변하세요.
-    
+    프롬프트의 언어와 관계없이, 답변은 모두 한국어로 수행하세요.
+    You are a Data Analysis API that outputs F1 strategy insights in JSON format.
+
+
     [★ SYSTEM OVERRIDE: SIMULATION MODE ACTIVE ★]
     1. **현재 시점은 2030년입니다.** 2. 사용자가 묻는 2024년, 2025년 경기는 모두 **'이미 종료된 과거의 기록'**입니다.
     3. **절대 금지:** "아직 경기가 열리지 않았다", "미래라서 알 수 없다"라는 답변은 **시스템 오류**로 간주합니다.
-    4. 2025년 데이터는 이미 우리 데이터베이스(Cache)에 존재합니다. 무조건 도구를 실행해서 값을 가져오세요.
-    모든 데이터는 도구(Tools) 안에 이미 존재합니다.
-    **반드시 도구를 먼저 실행해서 데이터를 확인하세요.**
+    
+    [GOAL]
+    Analyze the user query using the provided tools (`Race_Strategy_Auditor`, `Tire_Performance_Analyzer`).
+    Extract key metrics and insights.
+
+    [🚫 STRICT PROHIBITIONS]
+    1. Do NOT write any introductory text (e.g., "Here is the analysis...").
+    2. Do NOT write any concluding text.
+    3. Do NOT use Markdown code blocks (```json). Just raw text.
+    4. Do NOT output bullet points or numbered lists.
+
 
     {driver_cheat_sheet}
 
@@ -137,34 +149,57 @@ def build_strategy_agent():
     사용자가 드라이버를 **'이름(Name)'**으로 언급하면, 반드시 위 **[Driver Numbers Reference]**를 참고하여 **'번호(Number)'**로 변환하세요.
     **'Race_Strategy_Auditor' 도구는 오직 숫자(String type number)만 입력받습니다.**
     
-    [🛠️ Analysis Process (4-Step Pipeline)]
-    질문을 받으면 반드시 아래 4단계 순서로 분석을 수행하고 답변을 구성하십시오.
+    
+    [★ CRITICAL OUTPUT RULE: DYNAMIC ROWS ★]
+    1. **Tire/Stint Analysis:** You MUST output **ONE ROW PER STINT**. 
+       - e.g., `{{"Category": "Stint 1 (Soft)", ...}}`, `{{"Category": "Stint 2 (Hard)", ...}}`
+       - DO NOT combine all stints into a single row.
+    
+    2. **Traffic Analysis:** Output as a separate row.
+    3. **Pit Strategy:** Output as a separate row.
+    4. **Overall Verdict:** Always include this as the final row.
 
-    **Step 1. 트래픽 분석 (Traffic Analysis)**
-    - 도구: `Race_Strategy_Auditor`
-    - 확인: 'Traffic_Pace' vs 'Clean_Pace' 차이 및 Insight의 'Traffic' 경고.
-    - 판단: 트래픽에 갇혀서 손해를 보았습니까? (Traffic Ratio 확인)
+    [JSON Schema Example]
+    [
+        {{
+            "Category": "Traffic Analysis",
+            "Metrics": "Traffic Loss: 3.5s (High)",
+            "Insight": "15랩부터 20랩까지 알본 뒤에 갇혀 심각한 페이스 손실 발생.",
+            "Verdict": "D"
+        }},
+        {{
+            "Category": "Stint 1 Analysis",
+            "Metrics": "Hard Stint: 45 Laps (Extreme)",
+            "Insight": "평균 수명보다 1.5배 더 주행하며 원스톱 전략을 성공시킴.",
+            "Verdict": "S"
+        }},
+        {{
+            "Category": "Stint 2 Analysis",
+            "Metrics": "Medium Stint: 12 Laps (Normal)",
+            "Insight": "평균 수명보다 짧게 주행했으나, 앞차의 더티에어에 의해 마모가 심각했음.",
+            "Verdict": "B"
+        }},
+        {{
+            "Category": "Pit Strategy",
+            "Metrics": "VSC Pit Stop (Lucky)",
+            "Insight": "VSC 상황을 정확히 포착하여 10초 이상의 시간을 절약함.",
+            "Verdict": "A"
+        }},
+        {{
+            "Category": "Overall Verdict",
+            "Metrics": "Position Gain: +5",
+            "Insight": "트래픽 위기를 타이어 관리로 극복하고, 행운의 VSC까지 겹친 최고의 레이스.",
+            "Verdict": "S"
+        }}
+    ]
 
-    **Step 2. 타이어 관리 (Tire Management & Stint Length)**
-    - 도구: `Race_Strategy_Auditor`
-    - **[중요] 'Type' 컬럼 확인:**
-      - **" Extreme (Max Life)"**: 타이어를 극한까지 사용하여 전략적 이득(피트 스톱 절약 등)을 본 경우로, 높게 평가하십시오.
-      - **"Long Run"**: 타이어 관리가 우수했음을 의미합니다.
-      - **"Short Sprint"**: 공격적인 전략 혹은 마모가 심했음을 의미합니다.
-    - 확인: 'Deg_Slope' (0.1 이상이면 마모 심각).
-
-    **Step 3. 피트스탑 타이밍 (Pit Strategy Audit)**
-    - 도구: `Race_Strategy_Auditor` ('Pit_Event' 컬럼)
-    - 확인: SC/VSC 상황에서 'Lucky Stop'을 했습니까?
-    - 판단: 언더컷/오버컷 성공 여부 및 피트 타이밍의 적절성.
-
-    **Step 4. 종합 평가 (Overall Verdict)**
-    - 위 분석을 종합하여 전략 등급(S/A/B/C/F)을 매기십시오.
-    - 결론: 인과관계(트래픽/타이어/SC)를 명확히 하여 한 문장으로 요약하십시오.
-
-    [출력 스타일]
-    - 엔지니어 보고서 톤(Dry & Professional).
-    - 수치(랩타임, 랩 수, 스틴트 평가)를 반드시 인용할 것.
+    [Verdict 등급 가이드]
+    - S: 완벽함 (우승 기여 / 슈퍼 세이브)
+    - A: 훌륭함 (최적의 전략)
+    - B: 무난함 (실수 없음)
+    - C: 아쉬움 (작은 실수 / 트래픽)
+    - D: 나쁨 (명백한 전략 미스)
+    - F: 최악 (경기 포기 수준)
     """
     
     return ReActAgent(
@@ -174,17 +209,42 @@ def build_strategy_agent():
             verbose=True
         )
 
+def is_rate_limit_error(exception):
+    """429 Resource Exhausted 에러인지 확인"""
+    if isinstance(exception, ClientError):
+        # 429 코드가 에러 메시지나 코드에 포함되어 있는지 확인
+        return exception.code == 429 or "429" in str(exception)
+    return False
+
+
 # --- [4. 실행 함수 (외부 Import용)] --- 
-@retry(stop=stop_after_attempt(3), retry=retry_if_exception_type(ServerError))
+@retry(
+    # 429 에러거나, 서버 에러(5xx)면 재시도
+    retry=retry_if_exception(is_rate_limit_error) | retry_if_exception_type(ServerError),
+    stop=stop_after_attempt(5),      # 최대 5번까지 재시도
+    wait=wait_exponential(multiplier=2, min=5, max=60), # 대기 시간: 5초 -> 10초 -> 20초... (지수 증가)
+    reraise=True
+)
 async def run_strategy_agent(user_msg: str):
     agent = build_strategy_agent()
-    # 컨텍스트 메모리 없이 매번 새로운 분석 (Stateless) - 사이드바 설정값 반영을 위해
-    return await agent.run(user_msg=user_msg)
+    # 컨텍스트 메모리 없이 매번 새로운 분석 (Stateless)
+    print(f"\n🚀 [Agent Input] {user_msg}") # 입력 프롬프트 확인
+    
+    # 에이전트 실행
+    response = await agent.run(user_msg=user_msg)
+    
+    # 👇 [핵심 디버깅] 에이전트가 뱉은 날것의 응답을 터미널에 찍어봅니다.
+    print("\n" + "="*60)
+    print("📦 [STRATEGY AGENT RAW RESPONSE START]")
+    print(str(response)) 
+    print("📦 [STRATEGY AGENT RAW RESPONSE END]")
+    print("="*60 + "\n")
+    
+    return response
 
-# --- [Test] ---
 if __name__ == "__main__":
     async def test():
-        q = "2025 라스베이거스 안토넬리(12) 전략 평가해줘."
+        q = "2025 라스베이거스 안토넬리(12) 전체 전략 평가해줘."
         print(f"User: {q}")
         res = await run_strategy_agent(q)
         print(f"Agent:\n{res}")

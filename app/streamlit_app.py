@@ -6,6 +6,7 @@ import os
 import sys
 import asyncio
 import pandas as pd
+import json
 
 import fastf1
 import fastf1.plotting
@@ -93,16 +94,32 @@ st.markdown("""
 
 # --- [6. 데이터 준비] ---
 DRIVER_LIST = sorted(list(set(DRIVER_MAPPING.values())))
-GP_LIST = [
-    "Bahrain - 바레인", "Saudi Arabia - 사우디", "Australia - 호주", 
-    "Japan - 일본", "China - 중국", "Miami - 마이애미", 
-    "Emilia Romagna - 에밀리아 로마냐", "Monaco - 모나코", "Canada - 캐나다",
-    "Spain - 바르셀로나", "Austria - 오스트리아", "Great Britain - 영국", 
-    "Hungary - 헝가리", "Belgium - 벨기에", "Netherlands - 네덜란드", 
-    "Italy - 이탈리아", "Azerbaijan - 아제르바이잔", "Singapore - 싱가포르", 
-    "United States - 미국", "Mexico - 멕시코", "Brazil - 상파울루", 
-    "Las Vegas - 라스베이거스", "Qatar - 카타르", "Abu Dhabi - 아부다비"
-]
+GP_MAP = {
+    "Bahrain - 바레인": "Bahrain",
+    "Saudi Arabia - 사우디": "Saudi Arabia",
+    "Australia - 호주": "Australia",
+    "Japan - 일본": "Japan",
+    "China - 중국": "China",
+    "Miami - 마이애미": "Miami",
+    "Emilia Romagna - 이몰라": "Emilia Romagna",
+    "Monaco - 모나코": "Monaco",
+    "Canada - 캐나다": "Canada",
+    "Spain - 스페인": "Spain",
+    "Austria - 오스트리아": "Austria",
+    "British - 영국": "British", 
+    "Hungary - 헝가리": "Hungary",
+    "Belgium - 벨기에": "Belgium",
+    "Netherlands - 네덜란드": "Netherlands",
+    "Italy - 몬자": "Italy",
+    "Azerbaijan - 바쿠": "Azerbaijan",
+    "Singapore - 싱가포르": "Singapore",
+    "United States - 오스틴": "United States",
+    "Mexico - 멕시코": "Mexico",
+    "Brazil - 브라질": "Brazil",
+    "Las Vegas - 라스베이거스": "Las Vegas",
+    "Qatar - 카타르": "Qatar",
+    "Abu Dhabi - 아부다비": "Abu Dhabi"
+}
 
 
 TELEMETRY_TIPS = {
@@ -126,12 +143,6 @@ TELEMETRY_TIPS = {
     * **Braking Point:** 그래프가 꺾이기 시작하는 지점입니다. 누가 더 늦게 브레이크를 밟는지(Late Braking) 비교해보세요.
     * **Apex Speed:** 계곡의 가장 밑바닥 점입니다. 코너링 최소 속도가 높을수록 다운포스가 좋거나 드라이버가 과감한 것입니다.
     """
-}
-
-
-PIRELLI_COLORS = {
-    "SOFT": "#FF3333", "MEDIUM": "#FFF200", "HARD": "#EBEBEB",
-    "INTERMEDIATE": "#39B54A", "WET": "#00AEEF", "UNKNOWN": "#808080"
 }
 
 
@@ -177,16 +188,38 @@ def get_all_drivers_stint_data(year, gp):
 
 
 def plot_tire_strategy_chart(df, sorted_drivers):
-    """Plotly를 사용하여 Pirelli 스타일의 가로형 차트를 그립니다."""
+    """
+    [UI Upgrade] Pirelli Style Stint Map
+    - 얇은 막대, 명확한 색상, 빗금 패턴 적용
+    """
     fig = go.Figure()
     
-    # Y축 순서를 경기 결과 역순으로 (우승자가 맨 위)
+    # 1. Pirelli 공식 컬러 코드
+    PIRELLI_COLORS = {
+        "SOFT": "#DA291C",    # 공식 레드
+        "MEDIUM": "#FFD100",  # 공식 옐로우
+        "HARD": "#F0F0F0",    # 공식 화이트 (배경이 어두우니 밝은 회색)
+        "INTERMEDIATE": "#43B02A",
+        "WET": "#0067A5"
+    }
+    
+    # Y축 순서 (우승자가 위로)
     y_order = list(reversed(sorted_drivers))
     
     for _, row in df.iterrows():
-        color = PIRELLI_COLORS.get(row['Compound'], "#808080")
-        pattern = "" if row['Status'] == "NEW" else "/" # Used는 빗금
+        compound_key = row['Compound'].upper()
+        color = PIRELLI_COLORS.get(compound_key, "#808080")
         
+        # 2. 패턴 설정 (Used = 빗금)
+        pattern_shape = "/" if row['Status'] == "USED" else ""
+        
+        # 3. 호버 텍스트 (상세 정보)
+        hover_text = (
+            f"<b>{row['Driver']}</b> (Stint {row['Stint']})<br>"
+            f"Tyre: {row['Compound']} ({row['Status']})<br>"
+            f"Laps: {row['Start']} ~ {row['End']} ({row['Duration']} Laps)"
+        )
+
         fig.add_trace(go.Bar(
             y=[row['Driver']],
             x=[row['Duration']],
@@ -194,26 +227,45 @@ def plot_tire_strategy_chart(df, sorted_drivers):
             orientation='h',
             marker=dict(
                 color=color,
-                line=dict(color='black', width=1),
-                pattern_shape=pattern 
+                line=dict(color='#111111', width=1), # 막대 테두리 (구분선)
+                pattern_shape=pattern_shape,
+                pattern_solidity=0.5 # 빗금 진하기
             ),
             name=row['Compound'],
-            showlegend=False,
-            hovertemplate=f"<b>{row['Driver']}</b><br>{row['Compound']} ({row['Status']})<br>Laps: {row['Start']}-{row['End']}<extra></extra>"
+            hovertemplate=hover_text,
+            showlegend=False
         ))
 
+    # 4. 레이아웃 (Gap 줄이기 & 스타일링)
     fig.update_layout(
-        title="🏁 Tire Strategy Overview (Stint Map)",
+        title=dict(
+            text="<b>🏁 Tire Strategy History</b>",
+            font=dict(size=20, color="white")
+        ),
         template="plotly_dark",
         barmode='stack',
-        yaxis=dict(categoryorder='array', categoryarray=y_order),
-        xaxis=dict(title="Lap Number", dtick=5),
-        height=700, # 드라이버 20명이므로 길게
-        margin=dict(l=20, r=20, t=50, b=20),
+        yaxis=dict(
+            categoryorder='array', 
+            categoryarray=y_order,
+            tickfont=dict(size=12, color="white"),
+            title=None
+        ),
+        xaxis=dict(
+            title="Lap Number", 
+            dtick=5, # 5랩 단위 눈금
+            showgrid=True, 
+            gridcolor='#333333',
+            zeroline=False
+        ),
+        height=800,  # 드라이버 20명 기준 넉넉하게
+        bargap=0.4,  # 막대 사이 간격 (얇고 세련되게)
+        margin=dict(l=20, r=20, t=60, b=20),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
         showlegend=False
     )
     
-    # 범례(Legend) 수동 추가 (Fake Traces)
+    # 범례 (가짜 트레이스 추가)
     for name, color in PIRELLI_COLORS.items():
         if name in df['Compound'].unique():
             fig.add_trace(go.Bar(x=[0], y=[y_order[0]], marker_color=color, name=name, showlegend=True, visible='legendonly'))
@@ -232,7 +284,11 @@ with st.sidebar:
     
     # 드라이버 선택 로직을 제거하고, 연도와 그랑프리만 남김
     selected_year = st.selectbox("Year", [2021, 2022, 2023, 2024, 2025], index=3)
-    selected_gp = st.selectbox("Grand Prix", GP_LIST, index=3) # Default: Japan
+    # [수정] UI에는 Key(한글 포함)를 보여주고, 변수에는 Value(영어)를 저장
+    _selected_gp_display = st.selectbox("Grand Prix", list(GP_MAP.keys()), index=11) # Great Britain Index
+    selected_gp = GP_MAP[_selected_gp_display] # 실제로는 'Great Britain'만 변수에 담김
+    
+    st.caption(f"Target: {selected_year} {selected_gp}") # 디버깅용 확인 멘트
     
     st.divider()
     
@@ -387,6 +443,70 @@ with tab2:
 # ==============================================================================
 # TAB 3: Strategy Center (New!)
 # ==============================================================================
+
+# Helper 함수
+def render_strategy_cards(json_str):
+    """LLM이 뱉은 JSON 문자열을 예쁜 카드 UI로 변환합니다."""
+    import json
+    import re
+    
+    # 1. JSON 클리닝 (가끔 ```json ... ``` 을 붙일 때가 있음)
+    try:
+        cleaned_str = re.sub(r"```json|```", "", json_str).strip()
+        data = json.loads(cleaned_str)
+    except json.JSONDecodeError:
+        st.error("🚨 데이터 파싱 실패: LLM이 올바르지 않은 JSON을 반환했습니다.")
+        st.code(json_str) # 디버깅용 원본 출력
+        return
+
+    # 2. Verdict 별 색상 매핑
+    verdict_colors = {
+        "S": "#FFD700", # Gold
+        "A": "#00FF00", # Green
+        "B": "#00BFFF", # Blue
+        "C": "#FFFF00", # Yellow
+        "D": "#FF8C00", # Orange
+        "F": "#FF0000"  # Red
+    }
+
+    # 3. 2x2 그리드로 카드 배치
+    col1, col2 = st.columns(2)
+    
+    for i, item in enumerate(data):
+        # 짝수는 왼쪽, 홀수는 오른쪽
+        target_col = col1 if i % 2 == 0 else col2
+        
+        category = item.get("Category", "Analysis")
+        metrics = item.get("Metrics", "-")
+        insight = item.get("Insight", "No insight provided.")
+        verdict = item.get("Verdict", "N/A")[0] # S, A, B... 첫 글자만 따옴
+        
+        color = verdict_colors.get(verdict, "#FFFFFF")
+
+        with target_col:
+            # CSS로 카드 스타일링 (Streamlit 컨테이너 활용)
+            with st.container(border=True):
+                # 헤더 (카테고리 + 등급 뱃지)
+                c_head, c_badge = st.columns([3, 1])
+                with c_head:
+                    st.markdown(f"**{category}**")
+                with c_badge:
+                    st.markdown(f"<div style='text-align:center; background-color:{color}; color:black; font-weight:bold; border-radius:5px; padding:2px;'>{verdict} Rank</div>", unsafe_allow_html=True)
+                
+                st.divider()
+                
+                # 메트릭스 (강조)
+                st.markdown(f"<div style='color:#aaaaaa; font-size:0.9em;'>📊 Metrics</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:1.1em; font-weight:bold; color:white;'>{metrics}</div>", unsafe_allow_html=True)
+                
+                st.write("") # Spacer
+                
+                # 인사이트
+                st.markdown(f"<div style='color:#aaaaaa; font-size:0.9em;'>💡 Insight</div>", unsafe_allow_html=True)
+                st.info(insight)
+
+
+
 with tab3:
     st.markdown("### 🧠 Race Strategy Analysis")
     
@@ -406,56 +526,142 @@ with tab3:
     # 2. [Deep Dive] 드라이버별 심층 분석 컨트롤러
     st.markdown("#### 🕵️ Deep Dive: Driver Strategy Audit")
     
-    # 드라이버 선택 (Tab 3 전용)
+    # 드라이버 선택
     c_sel, _ = st.columns([1, 2])
     with c_sel:
         strategy_driver = st.selectbox("분석 대상 드라이버 선택", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="strat_drv")
 
-    # 분석 액션 버튼 (3 Categories)
+    # --------------------------------------------------------------------------
+    # [Helper Function] JSON 응답을 예쁜 데이터프레임으로 변환하여 출력
+    # --------------------------------------------------------------------------
+    def display_strategy_result(response_object):
+        import json
+        import pandas as pd
+        import re
+        
+        # 1. [핵심 수정] 어떤 객체가 오든 무조건 문자열(String)로 변환하는 만능 추출 로직
+        try:
+            # Case A: AgentChatResponse 객체인 경우 (LlamaIndex 기본)
+            if hasattr(response_object, 'response'):
+                final_text = response_object.response
+            # Case B: ChatMessage 객체인 경우 (.content 속성에 텍스트 있음)
+            elif hasattr(response_object, 'content'):
+                final_text = response_object.content
+            # Case C: 이미 문자열인 경우
+            elif isinstance(response_object, str):
+                final_text = response_object
+            # Case D: 그 외 (강제 문자열 변환)
+            else:
+                final_text = str(response_object)
+
+            # 안전장치: 혹시라도 final_text가 또 객체라면 강제로 str() 변환
+            if not isinstance(final_text, str):
+                final_text = str(final_text)
+
+        except Exception as e:
+            st.error(f"응답 데이터 추출 실패: {e}")
+            final_text = str(response_object)
+
+        # 2. JSON 추출 (Regex) - 이제 final_text는 무조건 문자열임이 보장됨
+        try:
+            # 대괄호 [ ... ] 로 감싸진 JSON Array 부분만 찾기
+            match = re.search(r"\[.*\]", final_text, re.DOTALL)
+            
+            if match:
+                json_str = match.group(0)
+                data = json.loads(json_str)
+                
+                # DataFrame 변환
+                df = pd.DataFrame(data)
+                
+                # Streamlit Dataframe 렌더링
+                st.dataframe(
+                    df, 
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Category": st.column_config.TextColumn("분석 항목", width="small"),
+                        "Metrics": st.column_config.TextColumn("핵심 지표", width="medium"),
+                        "Insight": st.column_config.TextColumn("상세 분석", width="large"),
+                        "Verdict": st.column_config.TextColumn("평가", width="small")
+                    }
+                )
+                
+                # 종합 평가 배지
+                overall = df[df['Category'].str.contains("Overall", case=False, na=False)]
+                if not overall.empty:
+                    verdict = overall.iloc[0].get('Verdict', '-')
+                    if "S" in verdict or "A" in verdict:
+                        st.success(f"🏆 종합 평가: {verdict}")
+                    elif "F" in verdict or "D" in verdict:
+                        st.error(f"⚠️ 종합 평가: {verdict}")
+                    else:
+                        st.info(f"ℹ️ 종합 평가: {verdict}")
+
+            else:
+                # JSON 패턴을 못 찾음 -> Raw Text 출력
+                raise ValueError("No JSON pattern found")
+
+        except (json.JSONDecodeError, ValueError):
+            st.warning("⚠️ 에이전트가 비정형 데이터로 응답했습니다. (Raw Text Mode)")
+            st.markdown(final_text)
+
+    # --------------------------------------------------------------------------
+    # [Action Buttons] 3가지 분석 모드
+    # --------------------------------------------------------------------------
     col_s1, col_s2, col_s3 = st.columns(3)
-    
-    # 결과 출력 컨테이너
     strategy_container = st.container()
+
+    JSON_INSTRUCTION = """
+    \n\n[IMPORTANT OUTPUT RULE]
+    - You must return the result **ONLY** as a valid JSON Array.
+    - No markdown formatting (no ```json).
+    - No introductory or concluding text.
+    - Example Format:
+    [
+        {"Category": "Traffic Analysis", "Metrics": "...", "Insight": "...", "Verdict": "B"},
+        {"Category": "Tire Management", "Metrics": "...", "Insight": "...", "Verdict": "S"}
+    ]
+    """
 
     with col_s1:
         if st.button("🚦 Traffic & Pace\n(트래픽/페이스 분석)", use_container_width=True):
             with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner(f"🔍 {strategy_driver}의 트래픽과 순수 페이스를 분리 분석 중..."):
-                        # Step 1 유도 프롬프트
-                        prompt = f"2025 {selected_gp}에서 {strategy_driver}의 '트래픽 분석(Step 1)'을 중점적으로 수행해줘. 트래픽에 갇힌 랩과 클린 에어에서의 페이스 차이를 숫자로 비교해."
-                        res = asyncio.run(run_strategy_agent(prompt))
-                        st.markdown(res)
+                        # [수정] 프롬프트 뒤에 JSON 지시사항 붙이기
+                        base_prompt = f"2025 {selected_gp}에서 {strategy_driver}의 '트래픽 분석(Step 1)'을 수행해."
+                        final_prompt = base_prompt + JSON_INSTRUCTION
+                        
+                        res = asyncio.run(run_strategy_agent(final_prompt))
+                        display_strategy_result(res)
 
     with col_s2:
         if st.button("🛞 Tire Degradation\n(타이어 마모도/수명)", use_container_width=True):
             with strategy_container:
                 with st.chat_message("assistant"):
-                    with st.spinner(f"📉 {strategy_driver}의 타이어 수명과 관리 능력을 평가 중..."):
-                        # Step 2 유도 프롬프트 (스틴트 길이 평가 포함)
-                        prompt = f"2025 {selected_gp}에서 {strategy_driver}의 '타이어 관리(Step 2)'를 분석해줘. 특히 스틴트 길이(Type)를 보고 타이어를 얼마나 오래 썼는지(Extreme/Long Run) 평가해줘."
+                    with st.spinner(f"📉 {strategy_driver}의 스틴트별 상세 분석 중..."):
+                        # 이제 간단하게 말해도 시스템 프롬프트 덕분에 알아듣습니다.
+                        prompt = (
+                            f"2025 {selected_gp}에서 {strategy_driver}의 타이어 전략을 분석해. "
+                            "Rule: Break down by Stint 1, Stint 2, etc." 
+                            + JSON_INSTRUCTION
+                        )
                         res = asyncio.run(run_strategy_agent(prompt))
-                        st.markdown(res)
-
+                        display_strategy_result(res)
+                        
     with col_s3:
         if st.button("📝 Full Strategy Report\n(전체 전략 평가)", type="primary", use_container_width=True):
             with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner(f"🧠 {strategy_driver}의 전체 레이스 운영을 복기하는 중..."):
-                        # Step 4 종합 평가
-                        prompt = f"2025 {selected_gp} {strategy_driver}의 전체 전략을 4단계(트래픽, 타이어, 피트스탑, 종합)로 완벽하게 분석해줘."
-                        res = asyncio.run(run_strategy_agent(prompt))
-                        st.markdown(res)
+                        # [수정]
+                        base_prompt = f"2025 {selected_gp} {strategy_driver}의 전체 전략을 4단계(트래픽, 타이어, 피트스탑, 종합)로 분석해."
+                        final_prompt = base_prompt + JSON_INSTRUCTION
+                        
+                        res = asyncio.run(run_strategy_agent(final_prompt))
+                        display_strategy_result(res)
 
-    # 3. [Simulation Form] (기존 기능 유지 - 하단 배치)
+    # 3. [Simulation Form] (Agent 4 연동 예정)
     with st.expander("🎲 What-If Simulation Lab (가상 시뮬레이션)", expanded=False):
-        st.caption("가상의 시나리오를 설정하여 전략 변화를 예측합니다.")
-        with st.form("sim_form"):
-            c1, c2, c3 = st.columns(3)
-            with c1: target_lap = st.number_input("Pit Lap", 1, 70, 20)
-            with c2: tire_choice = st.selectbox("New Tire", ["SOFT", "MEDIUM", "HARD"])
-            with c3: rival_gap = st.number_input("Gap to Rival (sec)", 0.0, 60.0, 2.5)
-            
-            submit_sim = st.form_submit_button("🚀 Run Simulation")
-            if submit_sim:
-                st.info("시뮬레이션 기능은 현재 유지보수 중입니다. (Agent 4 연결 필요)")
+        st.info("🚧 Agent 4 (Simulation) 연결 대기 중...")

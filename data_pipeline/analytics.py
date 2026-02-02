@@ -51,11 +51,12 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
 
         # 트래픽 감지
         if 'TimeDiffToAhead' in laps.columns:
+            # 1.0초 미만이면 트래픽
             laps['InTraffic'] = laps['TimeDiffToAhead'] < 1.0
         else:
             laps['InTraffic'] = False
 
-        # 5. 스틴트별 분석
+        # 5. 스틴트별 정밀 분석
         laps['Stint'] = laps['Stint'].fillna(1).astype(int)
         stint_summary = []
 
@@ -86,33 +87,27 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
             pit_condition = _check_pit_condition(stint_data)
 
             # 페이스 분석
-            race_laps = stint_data[stint_data['TrackStatus'] == '1']
-            clean_laps = race_laps[~race_laps['InTraffic']]
-            traffic_laps = race_laps[race_laps['InTraffic']]
-
+            racing_laps = stint_data[stint_data['TrackStatus'] == '1']
+            
+            # 클린 랩 vs 트래픽 랩 분리
+            clean_laps = racing_laps[~racing_laps['InTraffic']]
+            traffic_laps = racing_laps[racing_laps['InTraffic']]
+            
             avg_clean = clean_laps['LapTime'].dt.total_seconds().mean() if not clean_laps.empty else None
-            deg_slope = _calculate_slope(clean_laps) if len(clean_laps) > 3 else 0.0
+            avg_traffic = traffic_laps['LapTime'].dt.total_seconds().mean() if not traffic_laps.empty else None
+            
+            # 트래픽 비율 계산
+            traffic_pct = (len(traffic_laps) / len(racing_laps) * 100) if not racing_laps.empty else 0
 
-            # Insight 생성
-            note = [f"[{stint_eval}]"] # 맨 앞에 스틴트 평가 추가
-            
-            if pit_condition != "Green Flag":
-                note.append(f"{pit_condition} Stop")
-            
-            if len(traffic_laps) > laps_run * 0.4:
-                note.append(f"Traffic({len(traffic_laps)}L)")
-            
-            if deg_slope > 0.15:
-                note.append("High Deg")
-
+            # 에이전트가 읽기 편하게 컬럼명 명확화
             stint_summary.append({
                 "Stint": stint_id,
-                "Compound": compound,
-                "Laps": f"{laps_run} ({start_lap}-{end_lap})",
-                "Type": stint_eval, # 명시적 컬럼 추가
-                "Clean_Pace": round(avg_clean, 3) if avg_clean else "-",
-                "Deg_Slope": round(deg_slope, 4),
-                "Insight": ", ".join(note)
+                "Tyre": f"{compound} ({stint_eval})", # 예: HARD (Extreme)
+                "Laps": laps_run,
+                "Traffic_Run": f"{int(traffic_pct)}%", # 트래픽 겪은 비율
+                "Clean_Pace": round(avg_clean, 3) if avg_clean else "N/A",
+                "Traffic_Pace": round(avg_traffic, 3) if avg_traffic else "N/A",
+                "Pit_Event": pit_condition
             })
 
         return pd.DataFrame(stint_summary)
@@ -120,7 +115,6 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
     except Exception as e:
         print(f"Strategy Audit Error: {e}")
         return pd.DataFrame()
-
 # =============================================================================
 # 2. 타이어 성능 분석 (기존 유지)
 # =============================================================================
