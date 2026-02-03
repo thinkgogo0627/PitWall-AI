@@ -1,6 +1,7 @@
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from sentence_transformers import SentenceTransformer
 
 
@@ -36,18 +37,30 @@ class F1Retriever:
         self.embed_model = SentenceTransformer(model_source)
         print(" [Retriever] 준비 완료.")
         
-    def search(self, query: str, limit: int = 5, score_threshold: float = 0.4) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 5, score_threshold: float = 0.4, filter_meta: Optional[Dict] = None) -> List[Dict[str, Any]]:
         """
         자연어 질문을 벡터로 변환하여 Qdrant에서 유사한 문서를 찾습니다.
         """
         try:
             # 1. 질문을 벡터로 변환 (Encoding)
             query_vector = self.embed_model.encode(query).tolist()
-            
+            query_filter = None
+            if filter_meta:
+                must_conditions = []
+                for key, value in filter_meta.items():
+                    must_conditions.append(
+                        models.FieldCondition(
+                            key=key,
+                            match=models.MatchValue(value=value)
+                        )
+                    )
+                query_filter = models.Filter(must=must_conditions)
+
             # 2. 벡터 검색 (Search)
             search_result = self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector, # 벡터 전달
+                query_filter = query_filter,
                 limit=limit,
                 with_payload=True,
                 score_threshold=score_threshold # 유사도 커트라인
