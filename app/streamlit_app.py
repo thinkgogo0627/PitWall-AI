@@ -307,58 +307,86 @@ tab1, tab2, tab3 = st.tabs(["💬 Briefing", "📈 Telemetry Analytics" , "🧠 
 # TAB 1: Chat Interface (Briefing Agent)
 # ==============================================================================
 with tab1:
-    st.markdown("### 🎙️ Race Briefing Room")
-    st.caption("경기 결과 요약 및 뉴스 브리핑")
-
-    # [컨트롤 바] 드라이버 선택 및 액션 버튼을 한 줄에 배치
-    c1, c2, c3 = st.columns([1, 1, 1.5])
+    st.markdown("### 📰 Daily Briefing & Intelligence")
     
-    with c1:
-        # [Local Config] 브리핑 탭 전용 드라이버 선택
-        focus_driver = st.selectbox("🎯 관심 드라이버 선택", DRIVER_LIST, index=DRIVER_LIST.index("VER"))
-    
-    briefing_container = st.container()
-
-    with c2:
-        # 전체 요약 버튼
-        if st.button("📰 Race Summary\n(전체 경기 요약)", type="primary"):
-            with briefing_container:
-                with st.spinner(f"⚡ {selected_year} {selected_gp} 전체 데이터 분석 중..."):
-                    summary = asyncio.run(generate_quick_summary(selected_year, selected_gp))
-                    st.info("✅ 전체 브리핑 완료")
-                    st.markdown(summary)
-                    st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
-
-    with c3:
-        # 드라이버 포커스 버튼
-        if st.button(f"🔍 {focus_driver} Focus Report\n(드라이버 집중 분석)"):
-            with briefing_container:
-                with st.spinner(f"⚡ {focus_driver}의 경기 서사를 추적 중..."):
-                    summary = asyncio.run(generate_quick_summary(selected_year, selected_gp, driver_focus=focus_driver))
-                    st.success(f"✅ {focus_driver} 분석 완료")
-                    st.markdown(summary)
-                    st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
+    # 1. [Global Briefing] 전체 뉴스 브리핑 (기존 유지)
+    with st.expander("🌍 Global F1 News Briefing", expanded=True):
+        if st.button("Generate Daily Briefing (오늘의 주요 뉴스)", type="primary", use_container_width=True):
+            with st.spinner("Collecting latest intelligence..."):
+                # 뉴스 도구 + 규정 도구 모두 활용
+                res = asyncio.run(run_briefing_agent("오늘 F1 주요 뉴스를 요약해줘. 규정 변경이나 이슈가 있다면 규정집을 참고해서 설명해."))
+                st.markdown(res)
 
     st.divider()
+    
+    # 2. [Incident Room] 드라이버별 규정/사건 정밀 분석 (NEW)
+    st.markdown("### ⚖️ FIA Incident & Regulation Room")
+    st.caption("특정 드라이버의 페널티, 리타이어 원인, 규정 위반 여부를 규정집(PDF) 기반으로 분석합니다.")
 
-    # [Chat Interface]
-    if "msg_briefing" not in st.session_state:
-        st.session_state.msg_briefing = []
+    # (1) 드라이버 선택 (Strategy 탭과 별개로 동작)
+    c_driver, _ = st.columns([1, 2])
+    with c_driver:
+        target_driver = st.selectbox("분석 대상 드라이버 (Investigate Target)", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="briefing_driver")
 
-    for msg in st.session_state.msg_briefing:
-        with st.chat_message(msg["role"]): st.markdown(msg["content"])
+    # (2) 분석 액션 버튼들
+    col_i1, col_i2, col_i3 = st.columns(3)
+    
+    # 에이전트 응답 영역
+    incident_container = st.container(border=True)
 
-    if prompt := st.chat_input("심층 질문 입력... (예: 안토넬리 인터뷰 내용 알려줘)"):
-        st.session_state.msg_briefing.append({"role": "user", "content": prompt})
-        with st.chat_message("user"): st.markdown(prompt)
-        
-        with st.chat_message("assistant"):
-            with st.status("🕵️ 에이전트가 심층 조사 중...", expanded=True) as status:
-                context_prompt = f"[{selected_year} {selected_gp}] {prompt}"
-                response = asyncio.run(run_briefing_agent(context_prompt))
-                status.update(label="조사 완료", state="complete", expanded=False)
-                st.markdown(response)
-                st.session_state.msg_briefing.append({"role": "assistant", "content": response})
+    # 버튼 1: 페널티 & 심의 (Penalty & Investigation)
+    with col_i1:
+        if st.button("🚩 Penalty & Investigation\n(페널티/심의 분석)", use_container_width=True):
+            with incident_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"⚖️ {target_driver}의 최근 페널티 및 심의 내역을 규정집과 대조 중..."):
+                        # 프롬프트: 뉴스(사실관계) + 규정(법적근거) 융합
+                        prompt = (
+                            f"최근 {target_driver}와 관련된 페널티(Penalty)나 심의(Investigation) 사례를 찾아줘. "
+                            f"그리고 'Search_FIA_Regulations' 도구를 사용하여 해당 페널티가 어떤 규정(Sporting Regulations Article Number)을 위반했는지, "
+                            "벌점(Penalty Points)은 얼마인지 법적 근거를 들어 설명해줘."
+                        )
+                        res = asyncio.run(run_briefing_agent(prompt))
+                        st.markdown(res)
+
+    # 버튼 2: 리타이어 & 기술 이슈 (Retirement & Technical)
+    with col_i2:
+        if st.button("💥 Retirement Analysis\n(리타이어/사고 원인)", use_container_width=True):
+            with incident_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"🔧 {target_driver}의 리타이어/기술적 이슈 원인을 분석 중..."):
+                        prompt = (
+                            f"{target_driver}의 최근 리타이어(Retirement) 또는 차량 문제 원인을 뉴스에서 찾아줘. "
+                            "만약 기술적인 문제(PU, Gearbox 등)라면, 'Search_FIA_Regulations' 도구를 통해 "
+                            "관련된 교체 페널티 규정(Technical Regulations)이나 파워유닛 할당량 규정을 함께 설명해줘."
+                        )
+                        res = asyncio.run(run_briefing_agent(prompt))
+                        st.markdown(res)
+
+    # 버튼 3: 2026 규정 영향도 (Future Regulations)
+    with col_i3:
+        if st.button("📘 2026 Rules Impact\n(차기 규정 영향도)", use_container_width=True):
+            with incident_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"🔮 2026 규정이 {target_driver}에게 미칠 영향을 시뮬레이션 중..."):
+                        prompt = (
+                            f"2026년 F1 기술/스포팅 규정 변경이 {target_driver} (또는 소속 팀)에게 어떤 영향을 미칠지 분석해줘. "
+                            "특히 파워유닛이나 에어로다이내믹 규정(Article)을 인용하여, 이 드라이버의 주행 스타일이나 팀의 강점과 어떻게 연결될지 설명해."
+                        )
+                        res = asyncio.run(run_briefing_agent(prompt))
+                        st.markdown(res)
+
+    # (3) 커스텀 규정 검색 (Manual Query)
+    with st.expander("🔍 FIA 규정집 직접 검색 (Manual Search)"):
+        user_reg_query = st.text_input("궁금한 규정을 물어보세요 (예: 세이프티카 리스타트 절차, 트랙 리미트 벌점 기준)")
+        if st.button("규정 확인"):
+            if user_reg_query:
+                with incident_container:
+                     with st.chat_message("assistant"):
+                        # 단순 검색이 아니라, 에이전트가 도구를 쓰도록 유도
+                        prompt = f"FIA 규정집(Regulations)에서 다음 내용을 찾아서 조항 번호(Article)와 함께 설명해줘: {user_reg_query}"
+                        res = asyncio.run(run_briefing_agent(prompt))
+                        st.markdown(res)
 
 # ==============================================================================
 # TAB 2: Telemetry Studio (Dashboard Interface)
@@ -539,73 +567,77 @@ with tab3:
         import pandas as pd
         import re
         
-        # 1. [핵심 수정] 어떤 객체가 오든 무조건 문자열(String)로 변환하는 만능 추출 로직
+        # 1. 만능 텍스트 추출 (기존 유지)
         try:
-            # Case A: AgentChatResponse 객체인 경우 (LlamaIndex 기본)
-            if hasattr(response_object, 'response'):
-                final_text = response_object.response
-            # Case B: ChatMessage 객체인 경우 (.content 속성에 텍스트 있음)
-            elif hasattr(response_object, 'content'):
-                final_text = response_object.content
-            # Case C: 이미 문자열인 경우
-            elif isinstance(response_object, str):
-                final_text = response_object
-            # Case D: 그 외 (강제 문자열 변환)
-            else:
-                final_text = str(response_object)
+            if hasattr(response_object, 'response'): final_text = response_object.response
+            elif hasattr(response_object, 'content'): final_text = response_object.content
+            elif isinstance(response_object, str): final_text = response_object
+            else: final_text = str(response_object)
+            if not isinstance(final_text, str): final_text = str(final_text)
+        except Exception: final_text = str(response_object)
 
-            # 안전장치: 혹시라도 final_text가 또 객체라면 강제로 str() 변환
-            if not isinstance(final_text, str):
-                final_text = str(final_text)
-
-        except Exception as e:
-            st.error(f"응답 데이터 추출 실패: {e}")
-            final_text = str(response_object)
-
-        # 2. JSON 추출 (Regex) - 이제 final_text는 무조건 문자열임이 보장됨
+        # 2. JSON 파싱 & UI 렌더링
         try:
-            # 대괄호 [ ... ] 로 감싸진 JSON Array 부분만 찾기
             match = re.search(r"\[.*\]", final_text, re.DOTALL)
-            
             if match:
-                json_str = match.group(0)
-                data = json.loads(json_str)
-                
-                # DataFrame 변환
+                data = json.loads(match.group(0))
                 df = pd.DataFrame(data)
                 
-                # Streamlit Dataframe 렌더링
-                st.dataframe(
-                    df, 
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Category": st.column_config.TextColumn("분석 항목", width="small"),
-                        "Metrics": st.column_config.TextColumn("핵심 지표", width="medium"),
-                        "Insight": st.column_config.TextColumn("상세 분석", width="large"),
-                        "Verdict": st.column_config.TextColumn("평가", width="small")
-                    }
-                )
+                # --- [UI Upgrade] Dataframe 대신 커스텀 리스트 뷰 사용 ---
+                st.write("") # Spacer
                 
-                # 종합 평가 배지
-                overall = df[df['Category'].str.contains("Overall", case=False, na=False)]
-                if not overall.empty:
-                    verdict = overall.iloc[0].get('Verdict', '-')
+                # 헤더 그리기
+                h1, h2, h3, h4 = st.columns([2, 2, 1.5, 1])
+                h1.markdown("**분석 항목**")
+                h2.markdown("**핵심 지표**")
+                h3.markdown("**상세 리포트**")
+                h4.markdown("**평가**")
+                st.divider()
+                
+                # 행(Row) 반복 출력
+                for _, row in df.iterrows():
+                    c1, c2, c3, c4 = st.columns([2, 2, 1.5, 1])
+                    
+                    # 1. 카테고리
+                    c1.markdown(f"**{row.get('Category', '-')}**")
+                    
+                    # 2. 지표
+                    c2.caption(row.get('Metrics', '-'))
+                    
+                    # 3. [핵심] 상세 분석 (팝업 버튼)
+                    with c3:
+                        # 팝업 버튼 생성
+                        with st.popover("📄 분석 보기", use_container_width=True):
+                            st.markdown(f"### 💡 {row.get('Category', 'Analysis')}")
+                            st.info(row.get('Insight', '내용 없음'))
+                            
+                    # 4. 평가 (뱃지 스타일)
+                    verdict = row.get('Verdict', '-')
                     if "S" in verdict or "A" in verdict:
-                        st.success(f"🏆 종합 평가: {verdict}")
+                        c4.success(f"🏆 {verdict}")
                     elif "F" in verdict or "D" in verdict:
-                        st.error(f"⚠️ 종합 평가: {verdict}")
+                        c4.error(f"⚠️ {verdict}")
                     else:
-                        st.info(f"ℹ️ 종합 평가: {verdict}")
+                        c4.info(f"ℹ️ {verdict}")
+                    
+                    st.divider() # 행 구분선
+
+                # 종합 평가가 있다면 하단에 크게 강조
+                overall = df[df['Category'].str.contains("종합", case=False, na=False)] # 한글 '종합' 체크
+                if not overall.empty:
+                    v = overall.iloc[0].get('Verdict', '-')
+                    i = overall.iloc[0].get('Insight', '-')
+                    if "S" in v or "A" in v:
+                        st.success(f"🏁 **종합 평가: {v}** | {i}")
+                    else:
+                        st.info(f"🏁 **종합 평가: {v}** | {i}")
 
             else:
-                # JSON 패턴을 못 찾음 -> Raw Text 출력
-                raise ValueError("No JSON pattern found")
+                raise ValueError("No JSON found")
 
-        except (json.JSONDecodeError, ValueError):
-            st.warning("⚠️ 에이전트가 비정형 데이터로 응답했습니다. (Raw Text Mode)")
+        except Exception as e:
+            st.warning("⚠️ 분석 데이터를 표로 변환하는 중 문제가 발생했습니다. (Raw Text)")
             st.markdown(final_text)
-
     # --------------------------------------------------------------------------
     # [Action Buttons] 3가지 분석 모드
     # --------------------------------------------------------------------------

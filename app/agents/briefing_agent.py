@@ -37,7 +37,7 @@ from app.tools.soft_data import (
     search_technical_analysis,  # 기술 분석 (업데이트/차량 성능)
     get_event_timeline          # 경기 타임라인 (주요 사건 사고)
 )
-
+from app.regulation_tool import regulation_tool
 
 # --- [1. LLM 설정] ---
 # 작문(Storytelling) 능력이 중요하므로 Flash 모델 사용 (복잡한 추론보다는 요약/작문 위주)
@@ -94,7 +94,7 @@ def build_briefing_agent():
     """
     경기 후 브리핑 및 요약 전문 에이전트
     """
-    tools = [race_result_tool, tool_timeline, tool_interview, tool_tech, tool_general_news]
+    tools = [race_result_tool, regulation_tool, tool_timeline, tool_interview, tool_tech, tool_general_news]
     
     system_prompt = """
     당신은 F1 전문 저널리스트이자 팀의 '공보 담당관(Press Officer)'입니다.
