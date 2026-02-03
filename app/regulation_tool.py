@@ -1,37 +1,39 @@
-import os
 from llama_index.core.tools import FunctionTool
-from data_pipeline.retriever import F1Retriever
+# 👇 우리가 만든 클래스 임포트 (경로는 실제 파일 위치에 맞게!)
+from app.modules.retriever import F1Retriever 
 
-## 규정집만 찝어서 검색하도록 메타데이터 필터를 거는 역할 수행
-
-
-retriever = F1Retriever(collection_name="f1_news")
+# 1. 리트리버 인스턴스 생성 (싱글톤)
+# 규정집이 'f1_news' 컬렉션에 함께 들어있다고 가정 (Crawler에서 그렇게 넣었으므로)
+retriever = F1Retriever(collection_name="f1_news") 
 
 def search_fia_regulations(query: str) -> str:
     """
     [RAG] FIA 공식 규정집(Technical/Sporting Regulations)을 검색합니다.
     """
-    # 2. 우리의 Retriever 사용 (필터링 적용!)
+    # 2. 커스텀 리트리버 사용 + 필터링 적용
     results = retriever.search(
         query=query, 
         limit=4, 
-        filter_meta={"platform": "FIA Official PDF"} # 👈 규정집만 쏙 골라냄
+        # 👇 Crawler에서 저장할 때 썼던 그 메타데이터 키값!
+        filter_meta={"platform": "FIA Official PDF"} 
     )
     
     if not results:
         return "관련된 규정 조항을 찾을 수 없습니다."
 
-    # 3. 검색 결과를 에이전트가 읽기 좋은 문자열로 변환
+    # 3. 에이전트가 읽기 좋게 포맷팅
     formatted_response = ""
     for idx, item in enumerate(results, 1):
         title = item.get('title', 'Untitled')
         content = item.get('content', '')
-        score = item.get('score', 0.0)
-        formatted_response += f"\n[Document {idx} - {title} (Sim: {score:.2f})]\n{content}\n"
+        # page_no가 있다면 표시
+        page = item.get('page_no', '?')
+        
+        formatted_response += f"\n[Document {idx} | {title} (Page {page})]\n{content}\n"
         
     return formatted_response
 
-# 4. 도구 포장
+# 4. LlamaIndex 도구로 포장
 regulation_tool = FunctionTool.from_defaults(
     fn=search_fia_regulations,
     name="Search_FIA_Regulations",
