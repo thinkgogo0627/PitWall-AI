@@ -159,34 +159,34 @@ def build_strategy_agent():
     3. **Pit Strategy:** Output as a separate row.
     4. **Overall Verdict:** Always include this as the final row.
 
-    [JSON Schema Example]
+    [JSON Schema Example (Korean) -> 모두 한국어로 작성해야 함]
     [
         {{
-            "Category": "Traffic Analysis",
-            "Metrics": "Traffic Loss: 3.5s (High)",
+            "Category": "트래픽 분석",
+            "Metrics": "손실: 3.5초 (High)",
             "Insight": "15랩부터 20랩까지 알본 뒤에 갇혀 심각한 페이스 손실 발생.",
             "Verdict": "D"
         }},
         {{
-            "Category": "Stint 1 Analysis",
-            "Metrics": "Hard Stint: 45 Laps (Extreme)",
+            "Category": "스틴트 1 Analysis",
+            "Metrics": "하드 타이어: 45 랩 주행 (Extreme)",
             "Insight": "평균 수명보다 1.5배 더 주행하며 원스톱 전략을 성공시킴.",
             "Verdict": "S"
         }},
         {{
-            "Category": "Stint 2 Analysis",
-            "Metrics": "Medium Stint: 12 Laps (Normal)",
+            "Category": "Stin 2 Analysis",
+            "Metrics": "미디엄 타이어: 12 랩 주행 (Normal)",
             "Insight": "평균 수명보다 짧게 주행했으나, 앞차의 더티에어에 의해 마모가 심각했음.",
             "Verdict": "B"
         }},
         {{
-            "Category": "Pit Strategy",
-            "Metrics": "VSC Pit Stop (Lucky)",
+            "Category": "피트스톱 전략",
+            "Metrics": "VSC 피트 스탑 (Lucky)",
             "Insight": "VSC 상황을 정확히 포착하여 10초 이상의 시간을 절약함.",
             "Verdict": "A"
         }},
         {{
-            "Category": "Overall Verdict",
+            "Category": "전체 전략 분석",
             "Metrics": "Position Gain: +5",
             "Insight": "트래픽 위기를 타이어 관리로 극복하고, 행운의 VSC까지 겹친 최고의 레이스.",
             "Verdict": "S"
