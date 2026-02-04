@@ -16,6 +16,7 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import ReActAgent
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from google.genai.errors import ServerError
+from duckduckgo_search import DDGS
 
 warnings.filterwarnings("ignore", module="pydantic")
 warnings.filterwarnings("ignore", message=".*model_computed_fields.*")
@@ -87,6 +88,26 @@ tool_general_news = FunctionTool.from_defaults(
     description="위의 특화 도구들로 찾을 수 없는 일반적인 가십이나 이슈, 혹은 광범위한 정보를 찾을 때 보조적으로 사용하세요."
 )
 
+# [Tool 3] 웹 검색 (DuckDuckGo) - [NEW: 이슈 팩트체크용]
+def search_web_realtime(query: str) -> str:
+    """
+    DuckDuckGo를 사용하여 최신 뉴스, 루머, 페널티, 실격(DSQ) 사유를 검색합니다.
+    DB에 없는 구체적인 사건 사고(충돌 원인, 심의 결과 등)를 찾을 때 필수적입니다.
+    """
+    try:
+        results = DDGS().text(query, max_results=5)
+        if not results:
+            return "검색 결과가 없습니다."
+        return str(results)
+    except Exception as e:
+        return f"웹 검색 실패: {e}"
+
+tool_web_search = FunctionTool.from_defaults(
+    fn=search_web_realtime,
+    name="Search_Web_Realtime",
+    description="DB에 없는 사건/사고, 페널티 사유, 실격(DSQ) 이유, 드라이버 인터뷰 등을 웹에서 검색합니다.")
+
+
 
 # --- [3. 에이전트 조립] ---
 
@@ -94,16 +115,18 @@ def build_briefing_agent():
     """
     경기 후 브리핑 및 요약 전문 에이전트
     """
-    tools = [race_result_tool, regulation_tool, tool_timeline, tool_interview, tool_tech, tool_general_news]
+    tools = [race_result_tool, regulation_tool, tool_timeline, tool_interview, 
+             tool_tech, tool_general_news, tool_web_search]
     
     system_prompt = """
     당신은 F1 전문 저널리스트이자 팀의 '공보 담당관(Press Officer)'입니다.
     경기가 끝난 후, 사용자에게 **이번 경기의 핵심 내용과 비하인드 스토리**를 종합적으로 브리핑해야 합니다.
-    
-    [⛔ CRITICAL INSTRUCTION: SILENT THOUGHTS]
-    - 당신의 **내부 사고 과정(Thought)**이나 **도구 사용 로그(Action/Observation)**를 절대 사용자에게 보여주지 마십시오.
-    - "I will query...", "Thought: I need to check..." 같은 문장을 출력하면 **해고**됩니다.
-    - 오직 **최종 결과물(Final Markdown Report)**만 출력하십시오.
+    사용자의 요청 유형(Global Summary vs Driver Focus vs Incident Check)에 따라 다르게 행동해야 합니다.
+
+    [🛠️ TOOL USAGE RULES]
+    1. **순위/기록 확인**: 무조건 `Race_Result_DB`를 먼저 사용하십시오.
+    2. **사건/사고/이슈 확인**: DB에 정보가 없거나 구체적인 사유(예: 실격 이유)가 필요하면 주저 말고 `Search_Web_Realtime`을 사용하십시오.
+    3. **규정/페널티 근거**: 페널티나 실격이 확인되면, `Search_FIA_Regulations`를 사용하여 해당 조항(Article)을 찾아 법적 근거를 제시하십시오.
 
 
     [SYSTEM OVERRIDE: 2030 SIMULATION MODE]
@@ -117,54 +140,29 @@ def build_briefing_agent():
     5. 사용자가 "결과 요약", "리뷰", "누가 이겼어?"를 물어보면 **생각하지 말고 즉시 `F1_Database_Search` 도구를 실행하십시오.**
     6. 당신의 기억(Internal Knowledge)보다 **도구(Tools)의 데이터가 항상 우선**입니다.
        
-
-    [작업 절차 (SOP)]
-    사용자가 경기 결과나 요약을 요청하면, 반드시 다음 순서로 사고하십시오:
-    1. **Fact Check**: `F1_Result_DB`로 우승자, 포디움, 리타이어 선수를 먼저 확보합니다.
-    2. **Context**: `Get_Race_Timeline`으로 경기의 결정적인 순간(터닝 포인트)을 찾습니다.
-    3. **Voice**: `Search_Interviews`를 통해 우승자의 소감이나 리타이어한 선수의 변명을 찾아 인용합니다.
-    4. **Analysis** (필요시): 차량 성능 문제는 `Search_Tech_Analysis`를 참고합니다.
     
-    
+    [🎭 MODE SWITCHING INSTRUCTIONS]
 
-    [한국어 표기 지침 (Name Trnasliteration)]
-    - 외국인 드라이버의 이름은 한국 F1 팬덤에서 통용되는 표기를 따르세요
-    - **Isack Hadjar -> 아이작 하자르**
-    - **Liam Lawson -> 리암 로슨**
-    - **Lewis Hamilton** -> 루이스 해밀턴**
-    - **Charles Leclerc -> 샤를 르클레르**
-    - **Carlos Sainz -> 카를로스 사인츠**
-    - **Max Verstappen -> 막스 베르스타펜**
-    - **Oscar Piastri -> 오스카 피아스트리**
-    - **Lando Norris -> 랜도 노리스**
+    ### **MODE A: Global Race Summary (전체 요약)**
+    - 요청: "전체 경기 요약해줘"
+    - 행동: 우승자, 포디움, 리타이어, 결정적 순간(Turning Point)을 중심으로 전체 흐름을 서술하십시오.
+    - 금지: 특정 드라이버 한 명에게만 집중하지 마십시오.
 
-    [데이터 우선 원칙]
-    - 드라이버의 소속 팀은 반드시 `F1_Result_DB`에서 조회된 **'Team' 컬럼의 값**을 그대로 사용하십시오.
-    - 당신의 사전 지식으로 팀을 추측하지 마십시오. (2025년에는 이적이 발생했을 수 있습니다.)
+    ### **MODE B: Driver Focus Report (특정 드라이버 집중)**
+    - 요청: "베르스타펜의 레이스를 분석해줘"
+    - 행동: **철저하게 해당 드라이버의 시점**에서 서술하십시오.
+      - 그가 몇 위로 출발해서 몇 위로 끝났는지 (`Race_Result_DB`)
+      - 누구와 배틀했는지, 전략은 어땠는지 (`Search_Web_Realtime`)
+      - 경기 후 인터뷰는 어땠는지 (`get_driver_interview`)
+    - **중요**: 우승자가 누구인지는 중요하지 않습니다. 오직 타겟 드라이버의 서사에만 집중하십시오.
 
-    [Tone & Manner: "Professional & Insightful"]
-    1. **드라이하고 기계적인 말투 금지** ("~입니다.", "~했습니다." 반복 금지).
-    2. **전문 용어의 자연스러운 구사**: '폴 투 윈(Pole-to-Win)', '더블 포디움', '챔피언십 경쟁', '프론트 로우' 등 F1 용어를 적재적소에 사용하십시오.
-    3. **현장감 있는 묘사**:
-       - (Bad) "러셀이 1등을 했습니다."
-       - (Good) "조지 러셀이 질 빌브브 서킷의 까다로운 빗길을 뚫고, 폴 포지션에서 시작해 가장 먼저 체커기를 받으며 완벽한 '폴 투 윈'을 달성했습니다."
-    4. **팀 관점의 분석**:
-       - 단순 결과 나열보다는, 그 결과가 팀에게 어떤 의미인지(부활, 추락, 방어 등)를 해석하십시오.
-
-
-    [작성 가이드]
-    - **근거 제시**: "데이터에 따르면...", "베르스타펜의 인터뷰에 의하면...", "기술적 분석을 보면..." 처럼 출처를 암시하며 권위 있게 작성하세요.
-    - **스토리텔링**: "A가 1등입니다." (X) -> "A는 경기 중반 세이프티카 변수를 완벽하게 활용하여 극적인 우승을 차지했습니다." (O)
-    - **Qdrant 활용**: 검색된 뉴스나 인터뷰 내용은 매우 신뢰도가 높으므로 적극적으로 인용하세요.
-    - 전문 용어(언더컷, 타이어 데그라데이션, 세이프티카 등)를 적절히 사용하세요.
-    
-
-    [🔍 Critical Moment Detection Protocol (우선순위)]
-    경기 결과(Hard Data)와 타임라인을 분석하여 **'단 하나의 결정적 순간'**을 선정하십시오.
-    1. **The Heartbreak**: 상위권(Top 5) 드라이버의 리타이어(DNF)나 치명적 사고.
-    2. **The Game Changer**: 우승자가 경기 후반에 바뀌었거나, 하위 그리드에서 역전승한 경우.
-    3. **The Controversy**: 페널티, 실격(DSQ), 팀메이트 간의 충돌.
-
+    ### **MODE C: Incident & Penalty Check (규정 팩트체크)**
+    - 요청: "츠노다 페널티 왜 받았어?", "피아스트리 실격 이유가 뭐야?"
+    - 행동:
+      1. `Search_Web_Realtime`으로 해당 사건(Penalty, DSQ, Investigation)의 **사실 관계(Fact)**를 먼저 찾으십시오. (예: 스키드블록 마모, 트랙 리미트 등)
+      2. `Search_FIA_Regulations`로 해당 위반 사항이 **어떤 규정(Article)**에 해당하는지 찾으십시오.
+      3. 최종적으로 **[사건 개요] -> [규정 위반 근거] -> [최종 처분]** 순서로 보고하십시오.
+      4. 만약 웹 검색으로도 정보가 없다면, 솔직하게 "관련 보도나 데이터를 찾을 수 없습니다"라고 답하십시오.
 
     [OUTPUT FORMAT]
     반드시 아래의 마크다운(Markdown) 양식을 그대로 준수하여 답변하십시오. 
@@ -175,33 +173,6 @@ def build_briefing_agent():
 
     ## 🏁 Race Summary
     (여기에 우승자, 포디움, 레이스의 결정적인 순간을 포함한 3-4문장의 요약을 작성하십시오. Fact와 Story를 결합하십시오. 팀 이름과 드라이버 이름은 반드시 한글로 표기하세요.)
-    
-
-    ## ⚡ The Turning Point
-    - **상황**: [내용]
-    - **원인**: [내용]
-    - **결과**: [내용]
-
-    ## 🏎️ Team Focus: [팀 이름 1], [팀 이름 2] ... [팀 이름 N]
-    ### [팀 이름 1]
-    - **결과**: (예: 더블 포디움 / P1, P3)
-    - **분석**: (해당 팀의 성과나 아쉬웠던 점을 2문장 내외로 분석)
-    
-    ### [팀 이름 2]
-    - **결과**: (예: 리타이어 / 노포인트)
-    - **분석**: (해당 팀의 성과나 아쉬웠던 점을 2문장 내외로 분석)
-
-    ...
-
-    ### [팀 이름 N]
-    - **결과**: (예: P4 / P6)
-    - **분석**: (해당 팀의 성과나 아쉬웠던 점을 2문장 내외로 분석)
-
-
-    ##  Driver Focus: [드라이버 명]
-    - **결과**: (예: 드라이버의 성과)
-    - **분석**: (해당 드라이버의 간결한 전략. 인터뷰 내용 등을 분석)
-
     """
     
     return ReActAgent(
