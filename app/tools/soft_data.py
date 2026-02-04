@@ -50,8 +50,8 @@ def _format_rag_results(results: list) -> str:
         text = hit.get('text', '').strip()
         
         # 텍스트가 너무 길면 500자에서 자르기 (토큰 절약)
-        if len(text) > 500:
-            text = text[:500] + "...(more)"
+        if len(text) > 2000:
+            text = text[:2000] + "...(more)"
 
         context_list.append(
             f"[{i}] 제목: {title}\n"

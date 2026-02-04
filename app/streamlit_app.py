@@ -26,8 +26,7 @@ sys.path.append(project_root)
 
 # --- [3. 모듈 임포트] ---
 try:
-    from app.agents.briefing_agent import run_briefing_agent
-    from app.tools.briefing_pipeline import generate_quick_summary
+    from app.agents.briefing_agent import run_briefing_agent, generate_quick_summary
     from app.agents.strategy_agent import run_strategy_agent
     from app.tools.telemetry_data import (
     generate_track_dominance_plot, # 기존 (이미지)
@@ -314,8 +313,8 @@ with tab1:
     with c_driver:
         briefing_driver = st.selectbox("분석 대상 드라이버 (Target Driver)", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="brf_driver")
 
-    # 2. 3단계 액션 버튼
-    col_b1, col_b2, col_b3 = st.columns(3)
+    # 2. 액션 버튼 (3개 -> 2개로 축소)
+    col_b1, col_b2 = st.columns(2)  # 컬럼 수 변경
     
     briefing_container = st.container(border=True)
 
@@ -325,57 +324,29 @@ with tab1:
             with briefing_container:
                 with st.chat_message("assistant"):
                     with st.spinner(f"⚡ {selected_year} {selected_gp} 전체 세션을 분석 중..."):
-                        # [MODE A] 전체 요약 요청
-                        prompt = (
-                            f"[{selected_year} {selected_gp}] 경기의 전체 흐름을 요약해줘. "
-                            "우승자, 포디움, 그리고 경기의 결정적인 순간(Turning Point)을 중심으로 서술해. "
-                            "특정 드라이버 한 명에게 치우치지 말고 전체적인 레이스 양상을 브리핑해."
-                        )
-                        res = asyncio.run(run_briefing_agent(prompt))
-                        st.markdown(res)
+                        # generate_quick_summary 호출
+                        res = asyncio.run(generate_quick_summary(selected_year, selected_gp))
                         
+                        st.markdown(res)
                         if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
                         st.session_state.msg_briefing.append({"role": "assistant", "content": res})
 
-    # [버튼 2] 드라이버 레이스 요약 (Driver Focus) - 여기가 문제였음!
+    # [버튼 2] 드라이버 집중 분석 (이제 이것만 남김)
     with col_b2:
-        if st.button(f"🏎️ {briefing_driver} Race Report\n(드라이버 레이스 요약)", use_container_width=True):
+        if st.button(f"🏎️ {briefing_driver} Focus Report\n(드라이버 집중 분석)", use_container_width=True):
             with briefing_container:
                 with st.chat_message("assistant"):
-                    with st.spinner(f"⚡ {briefing_driver}의 시점에서 레이스를 복기 중..."):
-                        # [MODE B] 드라이버 집중 요청 (강력한 제약 조건 추가)
-                        prompt = (
-                            f"[{selected_year} {selected_gp}] 경기에서 오직 드라이버 '{briefing_driver}'의 레이스 내용만 집중적으로 보고해. "
-                            f"전체 우승자가 누구인지는 중요하지 않아. {briefing_driver}의 출발 순위, 최종 순위, 주요 배틀, 전략, 그리고 경기 후 인터뷰 내용만 다뤄. "
-                            "다른 드라이버 이야기는 {briefing_driver}와 직접 연관된 경우에만 짧게 언급해."
-                        )
-                        res = asyncio.run(run_briefing_agent(prompt))
-                        st.markdown(res)
+                    with st.spinner(f"⚡ {briefing_driver}의 시점에서 레이스를 추적 중..."):
+                        # generate_quick_summary 호출 (driver_focus 사용)
+                        res = asyncio.run(generate_quick_summary(selected_year, selected_gp, driver_focus=briefing_driver))
                         
+                        st.markdown(res)
                         if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
                         st.session_state.msg_briefing.append({"role": "assistant", "content": res})
 
-    # [버튼 3] 이슈/규정 팩트체크 (RAG + Web Search 필수)
-    with col_b3:
-        if st.button("⚖️ Incident & Penalty\n(이슈/규정 팩트체크)", use_container_width=True):
-            with briefing_container:
-                with st.chat_message("assistant"):
-                    with st.spinner(f"⚖️ {briefing_driver}의 규정 위반 및 이슈를 웹과 규정집에서 찾는 중..."):
-                        # [MODE C] 사건 사고 체크 (DuckDuckGo 사용 강제)
-                        prompt = (
-                            f"[{selected_year} {selected_gp}]에서 드라이버 '{briefing_driver}'에게 발생한 페널티(Penalty), 실격(DSQ), 리타이어(DNF), 혹은 조사(Investigation) 건을 찾아줘. "
-                            f"1. 먼저 'Search_Web_Realtime' 도구를 써서 뉴스나 웹에서 구체적인 사유(충돌, 기술 위반 등)를 찾아. "
-                            f"2. 그 다음 'Search_FIA_Regulations' 도구를 써서 해당 위반이 어떤 규정(Article)에 근거한 것인지 설명해. "
-                            "만약 특이사항이 없다면 없다고 명확히 말해줘."
-                        )
-                        res = asyncio.run(run_briefing_agent(prompt))
-                        st.markdown(res)
-                        
-                        if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
-                        st.session_state.msg_briefing.append({"role": "assistant", "content": res})
+    # [삭제됨] 버튼 3 (Incident Check) 코드는 완전히 제거했습니다.
 
     st.divider()
-
     # 3. 심층 대화 (Deep Dive Chat)
     # (기존 코드 유지)
     st.caption(f"💬 {briefing_driver} 또는 이번 경기에 대해 더 궁금한 점이 있다면 대화로 질문하세요.")

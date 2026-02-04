@@ -175,6 +175,12 @@ def build_briefing_agent():
 
     ## 🏁 Race Summary
     (여기에 우승자, 포디움, 레이스의 결정적인 순간을 포함한 3-4문장의 요약을 작성하십시오. Fact와 Story를 결합하십시오. 팀 이름과 드라이버 이름은 반드시 한글로 표기하세요.)
+    
+    ## 🔍 PitWall Investigation Source
+    (여기에 당신이 RAG 도구(Web/Regulation/Interview)를 통해 찾아낸 결정적 증거를 나열하십시오.)
+    * **Fact Check:** (예: Tsunoda received 5s penalty due to forcing Albon off track)
+    * **Regulation:** (예: Breach of Article 33.3)
+    
     """
     
     return ReActAgent(
@@ -197,6 +203,54 @@ async def run_briefing_agent(user_msg: str):
     from llama_index.core.workflow import Context
     ctx = Context(agent)
     return await agent.run(user_msg=user_msg, ctx=ctx)
+
+# --- [5. Streamlit 연동용 요약 생성 함수] ---
+async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -> str:
+    """
+    Streamlit UI에서 호출하는 함수. 
+    Driver Focus 모드일 때 '강제 검색'과 '출처 명시'를 수행하도록 프롬프트 강화.
+    """
+    
+    # [시나리오 1] 특정 드라이버 집중 분석 (Driver Focus Mode)
+    if driver_focus:
+        user_msg = f"""
+        [MODE: Driver Focus Report]
+        대상: {year} {gp}의 '{driver_focus}' 드라이버
+        
+        당신은 '{driver_focus}'의 전담 분석관입니다. 단순 기록 나열을 넘어 **'이면의 진실'**을 파헤치세요.
+        
+        [🕵️‍♂️ 필수 행동 지침: Trust No One]
+        1. **무조건 검색 수행 (Mandatory Search)**: 
+           - DB상 기록이 'Finished(완주)'라도 절대 믿지 마십시오.
+           - 반드시 'Search_Web_Realtime' 도구로 "{year} {gp} {driver_focus} penalty investigation reason"을 검색하세요.
+           - 검색 결과에서 **시간 페널티(5s, 10s), 벌점, 트랙 리미트, 충돌 원인**이 나오면 그것을 리포트의 핵심으로 삼으세요.
+        
+        2. **서사 재구성**: 
+           - "10위 출발 -> 14위 마감"이 중요한 게 아닙니다. "왜 떨어졌는가?"가 중요합니다.
+           - 예: "레이스 페이스는 좋았으나, 무리한 추월 시도로 5초 페널티를 받아 순위가 급락했습니다."
+           
+        3. **RAG 출처 명시 (Personality)**:
+           - 답변의 마지막에 당신이 이 사실을 어디서 찾았는지 **[🔍 Investigation Source]** 섹션을 만들어 명시하세요.
+           - 예: "- FIA Document: 5s Penalty for forcing driver off track"
+           - 예: "- Autosport: Brake failure mentioned in interview"
+        """
+        
+    # [시나리오 2] 전체 레이스 요약 (Global Race Summary)
+    else:
+        user_msg = f"""
+        [MODE: Global Race Summary]
+        대상: {year} {gp}
+        
+        이번 그랑프리의 전체적인 하이라이트와 핵심 이슈를 브리핑하세요.
+        
+        [필수 미션]
+        1. 우승자 및 포디움 확정.
+        2. 레이스의 승부처(Turning Point) 분석.
+        3. 데이터에 기반하지 않은 추측은 금지합니다.
+        """
+
+    return await run_briefing_agent(user_msg)
+
 
 # --- [테스트 실행] ---
 if __name__ == "__main__":
