@@ -1,6 +1,6 @@
 from llama_index.core.tools import FunctionTool
 # 👇 우리가 만든 클래스 임포트 (경로는 실제 파일 위치에 맞게!)
-from app.modules.retriever import F1Retriever 
+from data_pipeline.retriever import F1Retriever 
 
 # 1. 리트리버 인스턴스 생성 (싱글톤)
 # 규정집이 'f1_news' 컬렉션에 함께 들어있다고 가정 (Crawler에서 그렇게 넣었으므로)

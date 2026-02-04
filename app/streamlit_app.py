@@ -307,86 +307,89 @@ tab1, tab2, tab3 = st.tabs(["💬 Briefing", "📈 Telemetry Analytics" , "🧠 
 # TAB 1: Chat Interface (Briefing Agent)
 # ==============================================================================
 with tab1:
-    st.markdown("### 📰 Daily Briefing & Intelligence")
+    st.markdown("### 🎙️ Race Briefing Room")
     
-    # 1. [Global Briefing] 전체 뉴스 브리핑 (기존 유지)
-    with st.expander("🌍 Global F1 News Briefing", expanded=True):
-        if st.button("Generate Daily Briefing (오늘의 주요 뉴스)", type="primary", use_container_width=True):
-            with st.spinner("Collecting latest intelligence..."):
-                # 뉴스 도구 + 규정 도구 모두 활용
-                res = asyncio.run(run_briefing_agent("오늘 F1 주요 뉴스를 요약해줘. 규정 변경이나 이슈가 있다면 규정집을 참고해서 설명해."))
-                st.markdown(res)
-
-    st.divider()
-    
-    # 2. [Incident Room] 드라이버별 규정/사건 정밀 분석 (NEW)
-    st.markdown("### ⚖️ FIA Incident & Regulation Room")
-    st.caption("특정 드라이버의 페널티, 리타이어 원인, 규정 위반 여부를 규정집(PDF) 기반으로 분석합니다.")
-
-    # (1) 드라이버 선택 (Strategy 탭과 별개로 동작)
+    # 1. 분석 대상 드라이버 선택 (Tab 1 전용 컨텍스트)
     c_driver, _ = st.columns([1, 2])
     with c_driver:
-        target_driver = st.selectbox("분석 대상 드라이버 (Investigate Target)", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="briefing_driver")
+        # 기본값은 VER(베르스타펜) 또는 사용자 편의에 맞게 설정
+        briefing_driver = st.selectbox("분석 대상 드라이버 (Target Driver)", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="brf_driver")
 
-    # (2) 분석 액션 버튼들
-    col_i1, col_i2, col_i3 = st.columns(3)
+    # 2. 3단계 액션 버튼 (3 Action Buttons)
+    col_b1, col_b2, col_b3 = st.columns(3)
     
-    # 에이전트 응답 영역
-    incident_container = st.container(border=True)
+    briefing_container = st.container(border=True) # 결과가 출력될 컨테이너
 
-    # 버튼 1: 페널티 & 심의 (Penalty & Investigation)
-    with col_i1:
-        if st.button("🚩 Penalty & Investigation\n(페널티/심의 분석)", use_container_width=True):
-            with incident_container:
+    # [버튼 1] 레이스 전체 요약 (Global Race Summary)
+    with col_b1:
+        if st.button("📰 Race Summary\n(전체 경기 요약)", type="primary", use_container_width=True):
+            with briefing_container:
                 with st.chat_message("assistant"):
-                    with st.spinner(f"⚖️ {target_driver}의 최근 페널티 및 심의 내역을 규정집과 대조 중..."):
-                        # 프롬프트: 뉴스(사실관계) + 규정(법적근거) 융합
-                        prompt = (
-                            f"최근 {target_driver}와 관련된 페널티(Penalty)나 심의(Investigation) 사례를 찾아줘. "
-                            f"그리고 'Search_FIA_Regulations' 도구를 사용하여 해당 페널티가 어떤 규정(Sporting Regulations Article Number)을 위반했는지, "
-                            "벌점(Penalty Points)은 얼마인지 법적 근거를 들어 설명해줘."
-                        )
-                        res = asyncio.run(run_briefing_agent(prompt))
-                        st.markdown(res)
+                    with st.spinner(f"⚡ {selected_year} {selected_gp} 전체 세션 데이터를 분석 중..."):
+                        # Pipeline 직접 호출 (초고속 요약)
+                        summary = asyncio.run(generate_quick_summary(selected_year, selected_gp))
+                        st.markdown(summary)
+                        # 세션 기록 저장 (채팅 내역에 남기기 위함)
+                        if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
+                        st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
 
-    # 버튼 2: 리타이어 & 기술 이슈 (Retirement & Technical)
-    with col_i2:
-        if st.button("💥 Retirement Analysis\n(리타이어/사고 원인)", use_container_width=True):
-            with incident_container:
+    # [버튼 2] 드라이버 레이스 요약 (Driver Focus Summary)
+    with col_b2:
+        if st.button(f"🏎️ {briefing_driver} Race Report\n(드라이버 레이스 요약)", use_container_width=True):
+            with briefing_container:
                 with st.chat_message("assistant"):
-                    with st.spinner(f"🔧 {target_driver}의 리타이어/기술적 이슈 원인을 분석 중..."):
-                        prompt = (
-                            f"{target_driver}의 최근 리타이어(Retirement) 또는 차량 문제 원인을 뉴스에서 찾아줘. "
-                            "만약 기술적인 문제(PU, Gearbox 등)라면, 'Search_FIA_Regulations' 도구를 통해 "
-                            "관련된 교체 페널티 규정(Technical Regulations)이나 파워유닛 할당량 규정을 함께 설명해줘."
-                        )
-                        res = asyncio.run(run_briefing_agent(prompt))
-                        st.markdown(res)
+                    with st.spinner(f"⚡ {briefing_driver}의 레이스 서사를 추적 중..."):
+                        # Pipeline 직접 호출 (Driver Focus 모드)
+                        summary = asyncio.run(generate_quick_summary(selected_year, selected_gp, driver_focus=briefing_driver))
+                        st.markdown(summary)
+                        if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
+                        st.session_state.msg_briefing.append({"role": "assistant", "content": summary})
 
-    # 버튼 3: 2026 규정 영향도 (Future Regulations)
-    with col_i3:
-        if st.button("📘 2026 Rules Impact\n(차기 규정 영향도)", use_container_width=True):
-            with incident_container:
+    # [버튼 3] 드라이버 이슈/규정 분석 (Issue & Regulation Check)
+    with col_b3:
+        if st.button("⚖️ Incident & Penalty\n(이슈/규정 팩트체크)", use_container_width=True):
+            with briefing_container:
                 with st.chat_message("assistant"):
-                    with st.spinner(f"🔮 2026 규정이 {target_driver}에게 미칠 영향을 시뮬레이션 중..."):
-                        prompt = (
-                            f"2026년 F1 기술/스포팅 규정 변경이 {target_driver} (또는 소속 팀)에게 어떤 영향을 미칠지 분석해줘. "
-                            "특히 파워유닛이나 에어로다이내믹 규정(Article)을 인용하여, 이 드라이버의 주행 스타일이나 팀의 강점과 어떻게 연결될지 설명해."
+                    with st.spinner(f"⚖️ {briefing_driver}의 규정 위반 및 이슈 사항을 규정집(PDF)과 대조 중..."):
+                        # Agent에게 명확한 RAG 사용 지시
+                        rag_prompt = (
+                            f"{selected_year} {selected_gp}에서 {briefing_driver}에게 발생한 특이사항(Penalty, Investigation, DNF, DNS 등)을 분석해줘. "
+                            f"반드시 'Search_FIA_Regulations' 도구를 사용하여, 해당 이슈가 어떤 규정(Article)에 근거하여 처리되었는지 법적으로 설명해."
                         )
-                        res = asyncio.run(run_briefing_agent(prompt))
+                        res = asyncio.run(run_briefing_agent(rag_prompt))
                         st.markdown(res)
+                        if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
+                        st.session_state.msg_briefing.append({"role": "assistant", "content": res})
 
-    # (3) 커스텀 규정 검색 (Manual Query)
-    with st.expander("🔍 FIA 규정집 직접 검색 (Manual Search)"):
-        user_reg_query = st.text_input("궁금한 규정을 물어보세요 (예: 세이프티카 리스타트 절차, 트랙 리미트 벌점 기준)")
-        if st.button("규정 확인"):
-            if user_reg_query:
-                with incident_container:
-                     with st.chat_message("assistant"):
-                        # 단순 검색이 아니라, 에이전트가 도구를 쓰도록 유도
-                        prompt = f"FIA 규정집(Regulations)에서 다음 내용을 찾아서 조항 번호(Article)와 함께 설명해줘: {user_reg_query}"
-                        res = asyncio.run(run_briefing_agent(prompt))
-                        st.markdown(res)
+    st.divider()
+
+    # 3. Deep Dive Chat (심층 대화 인터페이스)
+    st.caption(f"💬 {briefing_driver} 또는 이번 경기에 대해 더 궁금한 점이 있다면 대화로 질문하세요.")
+    
+    if "msg_briefing" not in st.session_state:
+        st.session_state.msg_briefing = []
+
+    # 기존 대화 내역 출력
+    for msg in st.session_state.msg_briefing:
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
+
+    # 사용자 입력 처리
+    if prompt := st.chat_input("심층 질문 입력... (예: 안토넬리 인터뷰 내용 찾아줘, 3번 코너 사고 원인이 뭐야?)"):
+        # 사용자 질문 표시 및 저장
+        st.session_state.msg_briefing.append({"role": "user", "content": prompt})
+        with st.chat_message("user"): st.markdown(prompt)
+        
+        with st.chat_message("assistant"):
+            with st.status("🕵️ 에이전트가 심층 조사 중...", expanded=True) as status:
+                # 컨텍스트 주입 (연도, 그랑프리, 선택된 드라이버 정보 포함)
+                context_prompt = f"[{selected_year} {selected_gp} - Focus Driver: {briefing_driver}] {prompt}"
+                response = asyncio.run(run_briefing_agent(context_prompt))
+                
+                status.update(label="조사 완료", state="complete", expanded=False)
+                st.markdown(response)
+                # 답변 저장
+                st.session_state.msg_briefing.append({"role": "assistant", "content": response})
+
 
 # ==============================================================================
 # TAB 2: Telemetry Studio (Dashboard Interface)
