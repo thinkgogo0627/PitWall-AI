@@ -34,6 +34,7 @@ try:
     get_speed_trace_data,          # 신규 (Plotly)
     DRIVER_MAPPING
 )
+    from app.agents.tactic_simulation_agent import run_simulation_agent
 except ImportError as e:
     st.error(f"모듈 로드 실패: {e}")
     st.stop()
@@ -676,5 +677,68 @@ with tab3:
                         display_strategy_result(res)
 
     # 3. [Simulation Form] (Agent 4 연동 예정)
-    with st.expander("🎲 What-If Simulation Lab (가상 시뮬레이션)", expanded=False):
-        st.info("🚧 Agent 4 (Simulation) 연결 대기 중...")
+    st.subheader("⚔️ Head-to-Head Tactical Simulator")
+    st.caption("드라이버 간의 **언더컷(Undercut)** 및 **오버컷(Overcut)** 가능성을 시뮬레이션합니다.")
+
+    # A. 대결 구도 설정 (공격수 vs 수비수)
+    col_sim1, col_sim2, col_sim3 = st.columns([1, 0.2, 1])
+    
+    with col_sim1:
+        st.markdown("#### 🚀 Attacker (Chaser)")
+        sim_attacker = st.selectbox(
+            "추격하는 드라이버", 
+            DRIVER_LIST, 
+            index=1 if len(DRIVER_LIST) > 1 else 0, 
+            key="sim_att"
+        )
+
+    with col_sim2:
+        st.markdown("<div style='text-align: center; padding-top: 40px;'><h1>VS</h1></div>", unsafe_allow_html=True)
+
+    with col_sim3:
+        st.markdown("#### 🛡️ Defender (Leader)")
+        sim_defender = st.selectbox(
+            "앞서가는 드라이버", 
+            DRIVER_LIST, 
+            index=0, 
+            key="sim_def"
+        )
+
+    # B. 시뮬레이션 실행 버튼
+    st.write("") 
+    
+    if st.button("🔮 Run Tactical Simulation", type="primary", use_container_width=True):
+        if sim_attacker == sim_defender:
+            st.warning("⚠️ 공격수와 수비수가 동일합니다. 서로 다른 드라이버를 선택하세요.")
+        else:
+            # 결과 표시용 컨테이너
+            sim_result_container = st.container(border=True)
+            with sim_result_container:
+                with st.chat_message("assistant"):
+                    with st.spinner(f"🧮 Simulating: {sim_attacker} vs {sim_defender} at {selected_year} {selected_gp}..."):
+                        
+                        # [핵심] 에이전트에게 보낼 프롬프트 구성
+                        # 에이전트가 내부적으로 'run_tactical_simulation' 도구를 쓰도록 유도
+                        sim_prompt = (
+                            f"Analyze the tactical battle between {sim_attacker} (Attacker) and {sim_defender} (Defender) "
+                            f"at the {selected_year} {selected_gp}. "
+                            f"Perform a simulation to check if an undercut was possible based on pit loss time and lap times."
+                        )
+                        
+                        try:
+                            # 수정된 run_simulation_agent 호출
+                            response = asyncio.run(run_simulation_agent(sim_prompt))
+                            st.markdown(response)
+                            
+                        except Exception as e:
+                            st.error(f"Simulation Failed: {e}")
+                            st.caption("데이터가 부족하거나(DNF), 해당 시즌의 데이터가 아직 업데이트되지 않았을 수 있습니다.")
+
+    # C. 가이드 팁
+    with st.expander("💡 시뮬레이터 사용 가이드"):
+        st.markdown("""
+        * **Undercut:** 뒤따르는 차가 먼저 피트인하여 새 타이어의 성능으로 앞차를 추월하는 전략.
+        * **Overcut:** 앞차가 피트인한 동안, 헌 타이어로 더 버티며 나중에 피트인하여 추월하는 전략.
+        * **Simulation Logic:** * `Pit Loss Time` (피트레인 통과 시간) 계산
+            * `In-Lap` + `Out-Lap` vs `Stay-Out Laps` 비교
+        """)
