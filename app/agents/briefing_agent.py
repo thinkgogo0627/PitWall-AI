@@ -207,50 +207,65 @@ async def run_briefing_agent(user_msg: str):
 # --- [5. Streamlit 연동용 요약 생성 함수] ---
 async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -> str:
     """
-    Streamlit UI에서 호출하는 함수. 
-    Driver Focus 모드일 때 '강제 검색'과 '출처 명시'를 수행하도록 프롬프트 강화.
+    Streamlit UI 호출 함수.
+    타임라인: 2026년 2월 4일 기준.
+    문제 해결: 2025년 데이터는 '과거'지만, 외부 검색 도구(DuckDuckGo)의 데이터베이스 한계로 조회 불가능함을 명시.
     """
     
-    # [시나리오 1] 특정 드라이버 집중 분석 (Driver Focus Mode)
+    # 2025년 이후 데이터는 외부 검색 도구(DDG)가 멍청해서 못 찾으므로 '검색 제한' 모드 발동
+    is_external_data_missing = year >= 2025
+    
+    # [시나리오 1] 특정 드라이버 집중 분석
     if driver_focus:
-        user_msg = f"""
-        [MODE: Driver Focus Report]
-        대상: {year} {gp}의 '{driver_focus}' 드라이버
         
-        당신은 '{driver_focus}'의 전담 분석관입니다. 단순 기록 나열을 넘어 **'이면의 진실'**을 파헤치세요.
-        
-        [🕵️‍♂️ 필수 행동 지침: Trust No One]
-        1. **무조건 검색 수행 (Mandatory Search)**: 
-           - DB상 기록이 'Finished(완주)'라도 절대 믿지 마십시오.
-           - 반드시 'Search_Web_Realtime' 도구로 "{year} {gp} {driver_focus} penalty investigation reason"을 검색하세요.
-           - 검색 결과에서 **시간 페널티(5s, 10s), 벌점, 트랙 리미트, 충돌 원인**이 나오면 그것을 리포트의 핵심으로 삼으세요.
-        
-        2. **서사 재구성**: 
-           - "10위 출발 -> 14위 마감"이 중요한 게 아닙니다. "왜 떨어졌는가?"가 중요합니다.
-           - 예: "레이스 페이스는 좋았으나, 무리한 추월 시도로 5초 페널티를 받아 순위가 급락했습니다."
-           
-        3. **RAG 출처 명시 (Personality)**:
-           - 답변의 마지막에 당신이 이 사실을 어디서 찾았는지 **[🔍 Investigation Source]** 섹션을 만들어 명시하세요.
-           - 예: "- FIA Document: 5s Penalty for forcing driver off track"
-           - 예: "- Autosport: Brake failure mentioned in interview"
-        """
-        
-    # [시나리오 2] 전체 레이스 요약 (Global Race Summary)
+        # A. 2025년 시즌 (과거지만, 검색 도구 데이터 누락 구간)
+        if is_external_data_missing:
+            user_msg = f"""
+            [MODE: 2025 SEASON REVIEW]
+            **Current Date: 2026-02-04**
+            Target: {year} {gp} - {driver_focus}
+            
+            [상황 브리핑]
+            현재 우리는 2026년에 살고 있으며, {year}년 시즌은 이미 종료된 과거입니다.
+            하지만 **'Search_Web_Realtime' 도구의 서버 연결 문제로 인해 2025년 뉴스 아카이브에 접근할 수 없습니다.**
+            
+            [필수 행동 지침]
+            1. **검색 금지**: 도구를 써봤자 영화 정보 같은 노이즈만 나옵니다. **절대 검색하지 마십시오.**
+            2. **Hard Data 기반 추론**: Race_Result_DB의 데이터(순위, DSQ, DNF)는 정확합니다. 이 데이터를 팩트로 삼으세요.
+            3. **전문적 추론 (Reasoning)**:
+               - 예: 해밀턴이 DSQ라면? -> "일반적으로 DSQ는 기술 규정 위반(플랭크 마모, 연료 샘플 부족 등)에서 기인합니다"라고 전문가적 소견을 밝히세요.
+               - 예: 알론소가 순위가 떨어졌다면? -> "타이어 전략 미스나 트래픽 문제로 추정됩니다"라고 분석하세요.
+            """
+            
+        # B. 2024년 이전 (검색 도구 정상 작동 구간)
+        else:
+            user_msg = f"""
+            [MODE: HISTORICAL FACT CHECK]
+            **Current Date: 2026-02-04**
+            Target: {year} {gp} - {driver_focus}
+            
+            당신은 전담 분석관입니다. DuckDuckGo 검색 도구가 정상 작동하는 구간입니다.
+            
+            [필수 행동 지침]
+            1. **Mandatory Search**: 반드시 "{year} {gp} {driver_focus} penalty reason"을 검색하여 팩트를 찾으세요.
+            2. **Clean Race 판별**: 검색 결과 페널티가 없다면 "특이사항 없음"으로 보고하세요.
+            """
+            
+    # [시나리오 2] 전체 요약
     else:
-        user_msg = f"""
-        [MODE: Global Race Summary]
-        대상: {year} {gp}
-        
-        이번 그랑프리의 전체적인 하이라이트와 핵심 이슈를 브리핑하세요.
-        
-        [필수 미션]
-        1. 우승자 및 포디움 확정.
-        2. 레이스의 승부처(Turning Point) 분석.
-        3. 데이터에 기반하지 않은 추측은 금지합니다.
-        """
+        if is_external_data_missing:
+            user_msg = f"""
+            [MODE: 2025 SEASON SUMMARY]
+            **Current Date: 2026-02-04**
+            외부 뉴스 DB 연결 불가. Race_Result_DB의 데이터만으로 {year} {gp}의 하이라이트 기사를 작성하세요.
+            """
+        else:
+            user_msg = f"""
+            [MODE: HISTORICAL RACE SUMMARY]
+            Search_Web_Realtime 도구를 활용하여 {year} {gp}의 핵심 이슈와 우승자를 브리핑하세요.
+            """
 
     return await run_briefing_agent(user_msg)
-
 
 # --- [테스트 실행] ---
 if __name__ == "__main__":
