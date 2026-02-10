@@ -1,6 +1,7 @@
 streamlit
 pandas
 plotly
+seaborn
 matplotlib
 duckduckgo_search
 fastf1
