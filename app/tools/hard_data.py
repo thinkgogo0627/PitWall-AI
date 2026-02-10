@@ -31,14 +31,9 @@ from sqlalchemy import create_engine
 from llama_index.core import SQLDatabase
 from llama_index.core.query_engine import NLSQLTableQueryEngine
 from llama_index.core import Settings, PromptTemplate
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.google_genai import GoogleGenAI
 from tenacity import retry, stop_after_attempt, wait_exponential # 재시도 로직
 
-Settings.embed_model = HuggingFaceEmbedding(
-    model_name="BAAI/bge-m3",
-    device="cuda" # GPU 없으면 "cpu"
-)
 
 Settings.llm = GoogleGenAI(model="models/gemini-2.5-pro", api_key=api_key)
 
