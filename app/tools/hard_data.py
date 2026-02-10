@@ -36,7 +36,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential # 재시도 로
 
 
 Settings.llm = GoogleGenAI(model="models/gemini-2.5-pro", api_key=api_key)
-
+Settings.embed_model = None
 
 # 프로젝트 루트 경로 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
