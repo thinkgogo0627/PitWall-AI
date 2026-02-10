@@ -1,0 +1,14 @@
+streamlit
+pandas
+plotly
+matplotlib
+fastf1
+pymongo
+motor
+qdrant-client
+google-generativeai>=0.5.2
+python-dotenv
+openai
+llama-index-core
+llama-index-embeddings-google-genai
+llama-index-llms-google-genai
