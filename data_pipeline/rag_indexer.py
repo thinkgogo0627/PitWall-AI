@@ -26,12 +26,18 @@ class RAGIndexer:
         
         # 2. 임베딩 모델 로드 (GPU 가속 확인)
         # 로컬 캐시 경로 우선 확인 (로컬에 설정한 그 경로!)
-        docker_model_path = "/opt/airflow/data/model_cache/bge-m3"
+        docker_model_path = "/app/models/bge-m3"
         local_model_path = os.path.join(os.path.dirname(__file__), "../data/model_cache/bge-m3")
         
         model_path = "BAAI/bge-m3" # 기본값
-        if os.path.exists(docker_model_path): model_path = docker_model_path
-        elif os.path.exists(local_model_path): model_path = local_model_path
+        if os.path.exists(docker_model_path):
+            print(f"📂 Loading from docker Path: {docker_model_path}")
+            model_path = docker_model_path
+        elif os.path.exists(local_model_path):
+            print(f"💻 Loading from Local Path: {local_model_path}")
+            model_path = local_model_path
+        else:
+            print("🌐 Model not found locally. Downloading from HuggingFace Hub...")
 
         # GPU 사용 가능 여부 확인
         device = "cuda" if torch.cuda.is_available() else "cpu"

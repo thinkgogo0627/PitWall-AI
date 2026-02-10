@@ -1,45 +1,16 @@
-# --- Web Framework ---
 streamlit
-watchdog  # (선택) 로컬 개발 시 파일 변경 감지용
-
-# --- Data Science & Math ---
+fastf1
 pandas
 numpy
-scipy     # analytics.py에서 선형회귀(linregress) 할 때 썼음
-
-# --- F1 Data ---
-fastf1
-
-# --- Visualization ---
+plotly
 matplotlib
-seaborn
-
-# --- AI & LLM ---
-google-generativeai
+scipy
+duckduckgo-search
 llama-index
-llama-index-core
 llama-index-llms-google-genai
-llama-index-embeddings-google  # (선택) 임베딩 쓸 경우 필요
-
-# --- Utils ---
-python-dotenv  # .env 파일 로드용
-requests       # 가끔 웹 요청 필요할 때
-
-
-# --- Crawlling ---
-selenium
-trafilatura
-beautifulsoup4
-
-
-
-# --- DB & Vector ---
-motor
-beanie
+llama-index-core
+google-generativeai
 qdrant-client
-sentence-transformers
-langchain-text-splitters
-
-
-# --- Airflow 유틸 (필요시) ---
-pendulum
+python-dotenv
+tenacity
+llama-index-embeddings-huggingface

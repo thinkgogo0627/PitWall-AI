@@ -1,0 +1,28 @@
+cat <<EOF > .gcloudignore
+# [.gcloudignore] - 이 목록에 있는 것 빼고 다 가져갑니다!
+
+# 1. 깃(Git) 관련 (필요 없음)
+.git/
+.gitignore
+
+# 2. 가상환경 (뚱뚱함, 필요 없음)
+venv/
+airflow-env/
+.env
+
+# 3. 시스템 파일
+__pycache__/
+*.pyc
+.DS_Store
+ipynb_checkpoints/
+
+# 4. 기타 잡동사니
+tests/
+logs/
+notebooks/
+Docker/
+
+# 5. [핵심] 데이터 폴더 중에서 'cache'만 콕 집어서 버림!
+# (이렇게 하면 model_cache랑 db 파일은 자동으로 챙겨감)
+data/cache/
+EOF

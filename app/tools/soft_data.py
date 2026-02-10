@@ -8,6 +8,7 @@
 import sys
 import os
 import logging
+from qdrant_client import QdrantClient
 from duckduckgo_search import DDGS
 
 # [경로 설정] 로컬/Docker 어디서든 모듈을 찾을 수 있게
@@ -21,8 +22,17 @@ logger = logging.getLogger(__name__)
 
 # --- 1. 검색 엔진 시동 (Global Instance) ---
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None) # 로컬은 None
 
-print(f" [SoftData] Connecting to Qdrant at {QDRANT_URL}...")
+try:
+    # API Key가 있으면 클라우드 모드로 접속
+    if QDRANT_API_KEY:
+        client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    else:
+        client = QdrantClient(url=QDRANT_URL)
+    print(f"✅ Connected to Qdrant: {QDRANT_URL}")
+except Exception as e:
+    print(f"❌ Connection Failed: {e}")
 
 try:
     # F1Retriever 인스턴스 생성 (여기서 임베딩 모델 로드됨)
