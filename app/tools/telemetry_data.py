@@ -19,17 +19,17 @@ fastf1.plotting.setup_mpl(misc_mpl_mods=False)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 CACHE_DIR = os.path.join(PROJECT_ROOT, 'data', 'cache')
 PLOT_DIR = os.path.join(PROJECT_ROOT, 'data', 'plots')
-fastf1.Cache.enable_cache(CACHE_DIR)
 
+# 2. ★ 폴더부터 만든다! (이게 핵심)
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
-# FastF1 캐시 활성화
+# 3. 그 다음에 캐시를 켠다
 try:
     fastf1.Cache.enable_cache(CACHE_DIR)
-    print(f" FastF1 Cache Enabled: {CACHE_DIR}")
+    print(f"✅ FastF1 Cache Enabled at: {CACHE_DIR}")
 except Exception as e:
-    print(f" Cache Enable Failed: {e}")
+    print(f"⚠️ Cache Enable Failed: {e}")
 
 # -----------------------------------------------------------------------------
 # 드라이버 이름 정규화
