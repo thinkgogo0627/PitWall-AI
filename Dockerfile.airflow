@@ -4,8 +4,8 @@
 FROM apache/airflow:2.9.1-python3.11
 
 # 2. 필요한 패키지 리스트 복사
-COPY requirements.txt /requirements.txt
+COPY requirements.txt /requirements_airflow.txt
 
 # 3. 패키지 설치
 # (airflow 유저 권한으로 설치되므로 --user 옵션 불필요)
-RUN pip install --no-cache-dir -r /requirements.txt
+RUN pip install --no-cache-dir -r /requirements_airflow.txt

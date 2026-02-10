@@ -1,27 +1,14 @@
-# --- 1. Crawling & Scraping (크롤러용) ---
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-trafilatura>=1.6.0          # 뉴스 본문 추출 핵심 모듈 (없으면 에러남)
-lxml>=5.1.0                 # trafilatura와 bs4의 고속 파싱 엔진
-fake-useragent>=1.5.0       # 봇 차단 방지용 헤더 생성
-selenium>=4.18.0            # 동적 페이지(Formula1.com) 크롤링용
-webdriver-manager>=4.0.0    # (선택) 로컬 테스트 시 드라이버 자동 설치용
-
-# --- 2. Database (MongoDB & ODM) ---
-motor>=3.3.0                # MongoDB 비동기 드라이버 (필수)
-beanie>=1.25.0              # MongoDB ODM (데이터 모델링용)
-pymongo>=4.6.0              # 동기식 드라이버 (Motor가 의존함)
-
-# --- 3. Vector DB & RAG (핵심 엔진) ---
-qdrant-client>=1.8.0        # Qdrant 벡터 DB 클라이언트
-llama-index-core>=0.10.0    # 라마인덱스 코어
-llama-index-embeddings-google-genai>=0.1.6 # 구글 임베딩 (아까 에러났던 그놈!)
-llama-index-vector-stores-qdrant     # Qdrant 연결용 플러그인
-llama-index-llms-google-genai>=0.1.6        # (추가) 나중에 Gemini로 답변 생성할 때 필요
+streamlit
+pandas
+plotly
+matplotlib
+fastf1
+pymongo
+motor
+qdrant-client
 google-generativeai>=0.5.2
-
-# --- 4. Utilities (기타) ---
-python-dotenv>=1.0.0        # .env 파일 로드용
-pydantic>=2.0.0             # 데이터 검증 (Beanie/LlamaIndex 의존성)
-pandas>=2.0.0               # 데이터 처리용 (혹시 모를 분석 작업 대비)
-pendulum>=3.0.0             # Airflow DAG 시간 처리용
+python-dotenv
+openai
+llama-index-core
+llama-index-embeddings-google-genai
+llama-index-llms-google-genai
