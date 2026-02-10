@@ -8,42 +8,31 @@ from typing import List
 from motor.motor_asyncio import AsyncIOMotorClient
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from sentence_transformers import SentenceTransformer
-import torch # GPU 체크용
+from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 
 # 도메인 모델 (Beanie Document)
 from domain.documents import F1NewsDocument
 
 class RAGIndexer:
-    def __init__(self, mongo_uri: str, qdrant_url: str):
+    def __init__(self, mongo_uri: str, qdrant_url: str, qdrant_api_key=None):
         self.mongo_uri = mongo_uri
         self.qdrant_url = qdrant_url
+        self.qdrant_api_key = qdrant_api_key
         self.collection_name = "f1_knowledge_base"
         
         # 1. Qdrant 클라이언트 연결
         print(f"🔌 [Indexer] Connecting to Qdrant: {self.qdrant_url}")
-        self.qdrant_client = QdrantClient(url=self.qdrant_url)
+        self.qdrant_client = QdrantClient(url=self.qdrant_url, api_key=self.qdrant_api_key)
         
-        # 2. 임베딩 모델 로드 (GPU 가속 확인)
-        # 로컬 캐시 경로 우선 확인 (로컬에 설정한 그 경로!)
-        docker_model_path = "/app/models/bge-m3"
-        local_model_path = os.path.join(os.path.dirname(__file__), "../data/model_cache/bge-m3")
+        # [수정] 임베딩 모델 교체 (API 키는 환경변수에서 로드)
+        api_key = os.getenv("GOOGLE_API_KEY")
         
-        model_path = "BAAI/bge-m3" # 기본값
-        if os.path.exists(docker_model_path):
-            print(f"📂 Loading from docker Path: {docker_model_path}")
-            model_path = docker_model_path
-        elif os.path.exists(local_model_path):
-            print(f"💻 Loading from Local Path: {local_model_path}")
-            model_path = local_model_path
-        else:
-            print("🌐 Model not found locally. Downloading from HuggingFace Hub...")
-
-        # GPU 사용 가능 여부 확인
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f" [Indexer] Loading Model on [{device.upper()}] from {model_path}...")
+        print(f"🔌 [Indexer] Loading Google Gemini Embedding Model...")
+        self.embed_model = GoogleGenAIEmbedding(
+            model_name="models/gemini-embedding-001",  # 최신 모델 (성능 좋음)
+            api_key=api_key
+        )
         
-        self.embed_model = SentenceTransformer(model_path, device=device)
 
     def _generate_deterministic_uuid(self, text: str) -> str:
         """URL 기반으로 항상 같은 UUID를 생성 (멱등성 보장 핵심)"""
@@ -66,7 +55,7 @@ class RAGIndexer:
             self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=models.VectorParams(
-                    size=1024, # bge-m3 output dimension
+                    size=3072, # Gemini embedding
                     distance=models.Distance.COSINE
                 )
             )
@@ -107,13 +96,12 @@ class RAGIndexer:
 
     async def _process_batch(self, docs: List[dict]):
         """배치 단위 임베딩 및 업로드"""
-        texts = [d.get('content', '')[:8000] for d in docs] # 너무 긴 텍스트 잘라내기
+        texts = [d.get('content', '')[:8000] for d in docs]
         metadatas = []
         ids = []
         
         for d in docs:
             url = d.get('url', '')
-            # [멱등성 핵심] URL로 ID 생성
             ids.append(self._generate_deterministic_uuid(url))
             
             metadatas.append({
@@ -121,24 +109,30 @@ class RAGIndexer:
                 "url": url,
                 "platform": d.get('platform', 'Unknown'),
                 "published_at": d.get('published_at', '').isoformat() if d.get('published_at') else None,
-                "text": d.get('content', '')[:1000] # Qdrant Payload에 저장할 본문 (검색 결과 표시용)
+                "text": d.get('content', '')[:1000]
             })
 
-        # 1. GPU로 한 방에 임베딩
+        # 1. [수정] 구글 API로 한 방에 임베딩 (Batch API)
         if not texts: return
-        embeddings = self.embed_model.encode(texts, convert_to_numpy=True)
+        
+        # encode() -> get_text_embedding_batch() 로 변경
+        # LlamaIndex는 기본적으로 List[float]를 반환하므로 numpy 변환 옵션이 필요 없습니다.
+        embeddings = self.embed_model.get_text_embedding_batch(texts)
         
         # 2. Qdrant Points 생성
         points = [
             models.PointStruct(
                 id=id_,
-                vector=embedding.tolist(),
+                # LlamaIndex 결과는 이미 리스트이므로 .tolist()를 굳이 할 필요 없지만, 
+                # 안전하게 가려면 그냥 둬도 파이썬 리스트엔 .tolist()가 없어서 에러날 수 있음.
+                # 그냥 embedding 그대로 넣으면 됩니다.
+                vector=embedding, 
                 payload=metadata
             )
             for id_, embedding, metadata in zip(ids, embeddings, metadatas)
         ]
         
-        # 3. 업로드 (Upsert: 기존 ID 있으면 덮어씀)
+        # 3. 업로드
         self.qdrant_client.upsert(
             collection_name=self.collection_name,
             points=points

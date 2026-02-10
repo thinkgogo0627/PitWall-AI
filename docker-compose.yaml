@@ -4,23 +4,37 @@ version: '3.8'
 # Airflow까지 태워서 한 번에 묶어버리기 
 
 x-airflow-common: &airflow-common
-  build: .  # 현재 폴더의 Dockerfile로 빌드
-  env_file: .env
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow  # <--- 여기가 핵심!
+  
+  env_file:
+    - .env
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__FERNET_KEY: 'N92-l2Ke5H__K-_v6T7uEXi8qlWS6W4vvkb6VybkV6E='
+    AIRFLOW__WEBSERVER__SECRET_KEY: 'N92-l2Ke5H__K-_v6T7uEXi8qlWS6W4vvkb6VybkV6E='
+    
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     # [중요] 모듈 경로 인식 설정
     PYTHONPATH: /opt/airflow
+
+
+    MONGO_URI: ${MONGO_URI}
+    QDRANT_URL: ${QDRANT_URL}
+    QDRANT_API_KEY: ${QDRANT_API_KEY}
+    GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+
   volumes:
     - ./dags:/opt/airflow/dags
     - ./data_pipeline:/opt/airflow/data_pipeline
     - ./domain:/opt/airflow/domain
     - ./logs:/opt/airflow/logs
     - ./data:/opt/airflow/data
+    - ./.env:/opt/airflow/.env
 
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
@@ -52,9 +66,9 @@ services:
       - "8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
+      interval: 60s
+      timeout: 60s
+      retries: 10
     restart: always
 
   # 3. Airflow 스케줄러 (여기가 작업 실행 주체)

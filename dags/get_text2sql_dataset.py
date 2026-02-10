@@ -5,6 +5,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from motor.motor_asyncio import AsyncIOMotorClient
 import asyncio
+import os
 
 # [가상 데이터 소스 - 나중엔 DB나 FastF1에서 가져오게 확장 가능]
 DRIVERS = ['VER', 'PER', 'HAM', 'RUS', 'LEC', 'SAI', 'NOR', 'PIA']
@@ -14,7 +15,8 @@ SESSIONS = ['R', 'Q', 'FP1', 'FP2', 'FP3']
 
 async def generate_and_save_batch():
     # 1. DB 연결
-    client = AsyncIOMotorClient("mongodb://mongodb:27017")
+    mongo_uri = os.getenv("MONGO_URI")
+    client = AsyncIOMotorClient(mongo_uri)
     db = client.pitwall_db
     collection = db.dataset_function_calling
     

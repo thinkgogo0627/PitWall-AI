@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 import asyncio
 import pendulum
+import os
+from dotenv import load_dotenv
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -17,10 +19,18 @@ from beanie import init_beanie
 # ---------------------------------------------------------
 # 1. 비동기 작업을 동기로 감싸는 래퍼(Wrapper) 함수들
 # ---------------------------------------------------------
+load_dotenv()
 
 # DB 접속 정보 (Docker 내부 통신용)
-MONGO_URI = "mongodb://mongodb:27017"
-QDRANT_URL = "http://qdrant:6333"
+# 1. MongoDB Atlas 주소 (비번 포함된 그 주소)
+MONGO_URI = os.getenv("MONGO_URI") 
+
+# 2. Qdrant Cloud 주소
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
+# 3. Google Gemini API 키 (임베딩용)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # ---------------------------------------------------------
 # 1. 비동기 작업 정의 (Crawler Wrappers)
@@ -89,8 +99,24 @@ async def _crawl_and_save_generic(crawler_cls, target_url, platform_name):
             print(" 드라이버 종료됨.")
 
 async def _run_rag_indexing():
-    print("🧠 [Task] RAG 인덱싱 시작")
-    indexer = RAGIndexer(mongo_uri=MONGO_URI, qdrant_url=QDRANT_URL)
+    print("🧠 [Task] RAG 인덱싱 시작 (Target: Cloud DB)")
+    
+    # 환경변수나 전역변수에서 키 가져오기
+    # (주의: RAGIndexer 클래스 내부에서 os.getenv로 가져오도록 짰다면 여기선 인자 안 넘겨도 됨.
+    # 하지만 확실하게 하기 위해 인자로 넘기는 게 좋음)
+    
+    # 만약 RAGIndexer가 (mongo_uri, qdrant_url)만 받게 되어 있다면?
+    # -> 환경변수로 미리 세팅해두는 게 제일 깔끔합니다.
+    os.environ["MONGO_URI"] = MONGO_URI
+    os.environ["QDRANT_URL"] = QDRANT_URL
+    os.environ["QDRANT_API_KEY"] = QDRANT_API_KEY
+    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+
+    indexer = RAGIndexer(
+        mongo_uri=MONGO_URI, 
+        qdrant_url=QDRANT_URL,
+        qdrant_api_key =QDRANT_API_KEY
+    )
     await indexer.run_indexing()
 
 # ---------------------------------------------------------

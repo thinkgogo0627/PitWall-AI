@@ -1,0 +1,11 @@
+# Dockerfile.airflow
+
+# 1. 공식 Airflow 이미지 베이스 (파이썬 3.11 버전 추천)
+FROM apache/airflow:2.9.1-python3.11
+
+# 2. 필요한 패키지 리스트 복사
+COPY requirements.txt /requirements.txt
+
+# 3. 패키지 설치
+# (airflow 유저 권한으로 설치되므로 --user 옵션 불필요)
+RUN pip install --no-cache-dir -r /requirements.txt
