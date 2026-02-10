@@ -2,6 +2,7 @@ streamlit
 pandas
 plotly
 matplotlib
+duckduckgo_search
 fastf1
 pymongo
 motor
