@@ -1,4 +1,8 @@
 import streamlit as st
+import matplotlib
+
+matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
