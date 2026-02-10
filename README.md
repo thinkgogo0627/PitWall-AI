@@ -6,21 +6,38 @@
 
 
 
-### 1. 시스템 아키텍처
+# 🏎️ PitWall-AI: Formula 1 RAG Intelligence System
 
-- 데이터 흐름 수집 -> 저장 -> 서빙 단계로 설계함
+> **"Your Personal Race Engineer Powered by LLM"**
+> 복잡한 F1 규정(Sporting, Technical, Financial)과 레이스 데이터를 LLM이 분석하여, 팬들에게 실시간으로 답변해주는 AI 서비스입니다.
 
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)
+![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-FF4B4B?logo=streamlit)
+![LlamaIndex](https://img.shields.io/badge/Framework-LlamaIndex-black)
+![GCP](https://img.shields.io/badge/Deploy-Cloud%20Run-4285F4?logo=google-cloud)
 
-### A. 데이터 파이프라인
-- 정형 데이터 (Hard Data, tabular)
-    - Source: FastF1 라이브러리 (공식 F1 레이스 데이터 제공)
-    - Data: 랩타임, 타이어 컴파운드, 섹터 기록, 텔레메트리 (속도, 엔진 RPM)
-    - 저장: SQLite
-    - 파이프라인: 매 그랑프리 종료 시점마다 데이터 갱신 -> 현 시점까지 종료된 경기 데이터 전원 DB 적재(data/f1_data.db), 이후 그랑프리 시점마다 Airflow로 자동화
+## 🏗️ Architecture
+- **Frontend:** Streamlit
+- **LLM Engine:** LlamaIndex (Agentic Workflow)
+- **Model:** Google Gemini Pro (Reasoning), BAAI/bge-m3 (Embedding)
+- **Vector DB:** Qdrant Cloud (Hybrid Search)
+- **Infrastructure:** Google Cloud Platform (Cloud Build, Artifact Registry, Cloud Run)
+- **Containerization:** Docker
 
+## ✨ Key Features
+1.  **Regulation Expert:** 수백 페이지의 FIA 규정집(PDF)을 RAG로 검색하여 정확한 근거와 조항을 제시.
+2.  **Context-Aware Chat:** 이전 대화 맥락을 기억하는 멀티턴(Multi-turn) 대화 지원.
+3.  **Hybrid Search:** 키워드 매칭(Sparse)과 의미 기반 검색(Dense)을 결합하여 검색 정확도 향상.
 
+## 🚀 Getting Started
 
-- 비정형 데이터 (Soft Data, text)
-    - Source: GPKorea , autosport, F1 공식 홈페이지의 race strategy 섹션, FIA 공식 문서(F1 Technical Regulations, F1 Sporting Regulations)
-    - Data: 위 데이터 소스들에 있는 문서들 -> (선수들의 경기 기록, 기술 규정, 기타 등등)
-    - 저장: BAAI 모델 활용하여 임베딩 변환 후 ChromaDB에 적재
+### Prerequisites
+- Python 3.11+
+- Docker & Google Cloud CLI
+- API Keys (Google Gemini, Qdrant)
+
+### 1. Installation
+```bash
+git clone [https://github.com/your-username/PitWall-AI.git](https://github.com/your-username/PitWall-AI.git)
+cd PitWall-AI
+pip install -r requirements.txt
