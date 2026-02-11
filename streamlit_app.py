@@ -30,10 +30,8 @@ if not api_key:
         st.stop()
 
 # 1. LLM 강제 설정 (Gemini)
-Settings.llm = GoogleGenAI(
-    model="models/gemini-1.5-flash", 
-    api_key=api_key
-)
+llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
+Settings.llm = llm
 
 # 2. 임베딩 강제 설정 (Gemini) 
 # ★ 이게 없으면 자꾸 OpenAI를 찾습니다!
