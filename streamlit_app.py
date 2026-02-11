@@ -17,7 +17,7 @@ import fastf1.plotting
 
 ################################################################
 from llama_index.core import Settings
-from llama_index.embeddings.google_genai import GoogleGenerativeAIEmbedding
+from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.llms.google_genai import GoogleGenAI
 
 # API 키 가져오기 (Secrets or Env)
@@ -37,7 +37,7 @@ Settings.llm = GoogleGenAI(
 
 # 2. 임베딩 강제 설정 (Gemini) 
 # ★ 이게 없으면 자꾸 OpenAI를 찾습니다!
-Settings.embed_model = GoogleGenerativeAIEmbedding(
+Settings.embed_model = GoogleGenAIEmbedding(
     model_name="models/gemini-embedding-001",  # 아까 쓰기로 한 그 모델
     api_key=api_key
 )
