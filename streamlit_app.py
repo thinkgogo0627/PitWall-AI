@@ -15,6 +15,34 @@ import re
 import fastf1
 import fastf1.plotting
 
+################################################################
+from llama_index.core import Settings
+from llama_index.embeddings.google_genai import GoogleGenerativeAIEmbedding
+from llama_index.llms.google_genai import GoogleGenAI
+
+# API 키 가져오기 (Secrets or Env)
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    try:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+    except:
+        st.error("🚨 API Key가 없습니다!")
+        st.stop()
+
+# 1. LLM 강제 설정 (Gemini)
+Settings.llm = GoogleGenAI(
+    model="models/gemini-1.5-flash", 
+    api_key=api_key
+)
+
+# 2. 임베딩 강제 설정 (Gemini) 
+# ★ 이게 없으면 자꾸 OpenAI를 찾습니다!
+Settings.embed_model = GoogleGenerativeAIEmbedding(
+    model_name="models/gemini-embedding-001",  # 아까 쓰기로 한 그 모델
+    api_key=api_key
+)
+#############################################################################
+
 # --- [1. 한글 폰트 설정] ---
 font_path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
 if os.path.exists(font_path):
