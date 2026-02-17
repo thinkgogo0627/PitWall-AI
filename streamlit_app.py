@@ -338,7 +338,7 @@ with tab1:
                         st.session_state.msg_briefing.append({"role": "assistant", "content": res})
 
     st.divider()
-    st.caption("💬 심층 질문")
+    st.caption("💬 심층 질문: 생소한 용어나 드라이버, 경기의 서사가 궁금하다면 물어보세요")
     if "msg_briefing" not in st.session_state: st.session_state.msg_briefing = []
     for msg in st.session_state.msg_briefing:
         with st.chat_message(msg["role"]): st.markdown(msg["content"])
