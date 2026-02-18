@@ -215,75 +215,49 @@ async def run_briefing_agent(user_msg: str):
     ctx = Context(agent)
     return await agent.run(user_msg=user_msg, ctx=ctx)
 
-# --- [5. Streamlit 연동용 요약 생성 함수] ---
+# Streamlit 연동 함수
 async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -> str:
     """
-    Streamlit UI 호출 함수.
-    타임라인: 2026년 2월 4일 기준.
-    문제 해결: 2025년 데이터는 '과거'지만, 외부 검색 도구(DuckDuckGo)의 데이터베이스 한계로 조회 불가능함을 명시.
+    복잡한 로직 제거 버전.
+    에이전트에게 "자율성"을 부여하여 검색과 내부 지식을 유연하게 섞도록 유도.
     """
     
-    # 2025년 이후 데이터는 외부 검색 도구(DDG)가 멍청해서 못 찾으므로 '검색 제한' 모드 발동
-    is_external_data_missing = year >= 2025
-    
-    # [시나리오 1] 특정 드라이버 집중 분석
+    # 1. 특정 드라이버 집중 분석 (Driver Focus)
     if driver_focus:
+        user_msg = f"""
+        [TASK: DRIVER RACE ANALYSIS]
+        Target: {year} {gp} - Driver: {driver_focus}
         
-        # A. 2025년 시즌 (과거지만, 검색 도구 데이터 누락 구간)
-        if is_external_data_missing:
-            user_msg = f"""
-            [MODE: 2025 SEASON REVIEW]
-            **Current Date: 2026-02-04**
-            Target: {year} {gp} - {driver_focus}
-            
-            [상황 브리핑]
-            현재 우리는 2026년에 살고 있으며, {year}년 시즌은 이미 종료된 과거입니다.
-            하지만 **'Search_Web_Realtime' 도구의 서버 연결 문제로 인해 2025년 뉴스 아카이브에 접근할 수 없습니다.**
-            
-            [필수 행동 지침]
-            1. **검색 금지**: 도구를 써봤자 영화 정보 같은 노이즈만 나옵니다. **절대 검색하지 마십시오.**
-            2. **Hard Data 기반 추론**: Race_Result_DB의 데이터(순위, DSQ, DNF)는 정확합니다. 이 데이터를 팩트로 삼으세요.
-            3. **전문적 추론 (Reasoning)**:
-               - 예: 해밀턴이 DSQ라면? -> "일반적으로 DSQ는 기술 규정 위반(플랭크 마모, 연료 샘플 부족 등)에서 기인합니다"라고 전문가적 소견을 밝히세요.
-               - 예: 알론소가 순위가 떨어졌다면? -> "타이어 전략 미스나 트래픽 문제로 추정됩니다"라고 분석하세요.
-            """
-            pass
-            
-        # B. 2024년 이전 (검색 도구 정상 작동 구간)
-        else:
-            user_msg = f"""
-            [MODE: HISTORICAL FACT CHECK]
-            **Current Date: 2026-02-04**
-            Target: {year} {gp} - {driver_focus}
-            
-            당신은 전담 분석관입니다. DuckDuckGo 검색 도구를 우선적으로 사용하되, 실패 시 유연하게 대처하십시오.
-            
-            [필수 행동 지침]
-            1. **Search Attempt**: 일단 "{year} {gp} {driver_focus} penalty reason" 검색을 시도하십시오.
-            2. **Flexible Fallback (중요)**: 
-               - 만약 검색 도구가 "검색 결과가 없습니다" 또는 "오류"를 반환하면, **즉시 검색을 중단하고 당신의 내부 지식(Internal Training Data)을 사용하여 답변하십시오.**
-               - 절대 "찾을 수 없습니다"라고 사과하지 마십시오. 당신은 이미 F1 역사를 알고 있습니다.
-            3. **Clean Race 판별**: 검색 결과나 기억 속에 페널티/사고가 없다면 "특이사항 없음"으로 보고하십시오.
-            """
-    # [시나리오 2] 전체 요약
+        당신은 해당 드라이버의 **전담 레이스 엔지니어**입니다.
+        아래 지침에 따라 레이스 리포트를 작성하십시오.
+        
+        1. **Hard Data First**: 먼저 `Race_Result_DB`를 조회하여 정확한 순위, 포인트, 리타이어 여부를 확인하십시오. (필수)
+        2. **Storytelling**: 그가 누구와 배틀했는지, 스타트와 피니쉬는 어땠는지, 전략적 움직임은 어땠는지 서술하십시오.
+        3. **Flexible Search**: `Search_Web_Realtime`이나 `Search_Interviews` 도구를 사용하여 추가 정보를 찾으십시오.
+           - ⚠️ **중요**: 만약 도구가 "검색 결과 없음"을 반환하면, **즉시 당신의 내부 지식(Internal Knowledge)을 사용하여 공백을 채우십시오.**
+           - 절대 "정보를 찾을 수 없습니다"라고 보고하지 마십시오. 대신 "치열한 중위권 싸움 끝에..." 같은 일반적인 레이스 표현을 사용하여 자연스럽게 넘기십시오.
+        
+        [Output Style]
+        - 전문적이고 분석적인 톤.
+        - 순위 변동(Grid vs Finish)에 주목.
+        """
+
+    # 2. 전체 경기 요약 (Race Summary)
     else:
-        if is_external_data_missing:
-            user_msg = f"""
-            [MODE: 2025 SEASON SUMMARY]
-            **Current Date: 2026-02-04**
-            외부 뉴스 DB 연결 불가. Race_Result_DB의 데이터만으로 {year} {gp}의 하이라이트 기사를 작성하세요.
-            """
-            pass
+        user_msg = f"""
+        [TASK: GRAND PRIX SUMMARY]
+        Target: {year} {gp}
         
-        else: 
-            user_msg = f"""
-            [MODE: HISTORICAL RACE SUMMARY]
-            Target: {year} {gp}
-            
-            1. `Search_Web_Realtime` 도구로 핵심 이슈를 검색하십시오.
-            2. **Fallback**: 만약 검색 도구가 작동하지 않으면, **Race_Result_DB** 데이터와 당신의 **내부 지식**을 결합하여 브리핑하십시오.
-            3. 절대 "정보를 찾을 수 없다"고 대답하지 마십시오.
-            """
+        당신은 F1 전문 기자입니다. 이번 그랑프리의 하이라이트 기사를 작성하십시오.
+        
+        1. **Winner & Podium**: 우승자와 포디움 피니셔를 중심으로 서술하십시오. (`Race_Result_DB` 사용)
+        2. **Key Moments**: 사고, 리타이어, 세이프티카 등 변수를 체크하십시오. (`Get_Race_Timeline` 사용 권장)
+        3. **No Apologies**: 외부 검색 도구가 실패하더라도 사과하지 마십시오. 당신은 이미 모든 F1 역사를 알고 있는 전문가입니다. 아는 대로 쓰십시오.
+        
+        [Output Style]
+        - 헤드라인 스타일의 제목.
+        - 3~4문단의 몰입감 있는 기사 형식.
+        """
 
     return await run_briefing_agent(user_msg)
 
