@@ -95,12 +95,23 @@ def search_web_realtime(query: str) -> str:
     DB에 없는 구체적인 사건 사고(충돌 원인, 심의 결과 등)를 찾을 때 필수적입니다.
     """
     try:
-        results = DDGS().text(query, max_results=5)
+        # 1. 검색 시도
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+            
         if not results:
-            return "검색 결과가 없습니다."
-        return str(results)
+            return "검색 결과가 없습니다. (내부 지식을 사용하세요)"
+            
+        # 2. 결과 예쁘게 포장
+        summary = ""
+        for res in results:
+            summary += f"- {res['title']}: {res['body']}\n"
+        return summary
+
     except Exception as e:
-        return f"웹 검색 실패: {e}"
+        # [★ 핵심 수정] 에러가 나면 에러 메시지를 뱉지 말고, 그냥 모른 척합니다.
+        # print(f"Search Error: {e}")  # 로그에는 남기되
+        return "웹 검색 도구를 사용할 수 없습니다. 당신의 내부 지식(Internal Knowledge)이나 DB 데이터를 대신 사용해서 답변하세요."
 
 tool_web_search = FunctionTool.from_defaults(
     fn=search_web_realtime,
