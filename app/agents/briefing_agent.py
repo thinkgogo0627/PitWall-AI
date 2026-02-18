@@ -247,6 +247,7 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
                - 예: 해밀턴이 DSQ라면? -> "일반적으로 DSQ는 기술 규정 위반(플랭크 마모, 연료 샘플 부족 등)에서 기인합니다"라고 전문가적 소견을 밝히세요.
                - 예: 알론소가 순위가 떨어졌다면? -> "타이어 전략 미스나 트래픽 문제로 추정됩니다"라고 분석하세요.
             """
+            pass
             
         # B. 2024년 이전 (검색 도구 정상 작동 구간)
         else:
@@ -255,13 +256,15 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
             **Current Date: 2026-02-04**
             Target: {year} {gp} - {driver_focus}
             
-            당신은 전담 분석관입니다. DuckDuckGo 검색 도구가 정상 작동하는 구간입니다.
+            당신은 전담 분석관입니다. DuckDuckGo 검색 도구를 우선적으로 사용하되, 실패 시 유연하게 대처하십시오.
             
             [필수 행동 지침]
-            1. **Mandatory Search**: 반드시 "{year} {gp} {driver_focus} penalty reason"을 검색하여 팩트를 찾으세요.
-            2. **Clean Race 판별**: 검색 결과 페널티가 없다면 "특이사항 없음"으로 보고하세요.
+            1. **Search Attempt**: 일단 "{year} {gp} {driver_focus} penalty reason" 검색을 시도하십시오.
+            2. **Flexible Fallback (중요)**: 
+               - 만약 검색 도구가 "검색 결과가 없습니다" 또는 "오류"를 반환하면, **즉시 검색을 중단하고 당신의 내부 지식(Internal Training Data)을 사용하여 답변하십시오.**
+               - 절대 "찾을 수 없습니다"라고 사과하지 마십시오. 당신은 이미 F1 역사를 알고 있습니다.
+            3. **Clean Race 판별**: 검색 결과나 기억 속에 페널티/사고가 없다면 "특이사항 없음"으로 보고하십시오.
             """
-            
     # [시나리오 2] 전체 요약
     else:
         if is_external_data_missing:
@@ -270,10 +273,16 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
             **Current Date: 2026-02-04**
             외부 뉴스 DB 연결 불가. Race_Result_DB의 데이터만으로 {year} {gp}의 하이라이트 기사를 작성하세요.
             """
-        else:
+            pass
+        
+        else: 
             user_msg = f"""
             [MODE: HISTORICAL RACE SUMMARY]
-            Search_Web_Realtime 도구를 활용하여 {year} {gp}의 핵심 이슈와 우승자를 브리핑하세요.
+            Target: {year} {gp}
+            
+            1. `Search_Web_Realtime` 도구로 핵심 이슈를 검색하십시오.
+            2. **Fallback**: 만약 검색 도구가 작동하지 않으면, **Race_Result_DB** 데이터와 당신의 **내부 지식**을 결합하여 브리핑하십시오.
+            3. 절대 "정보를 찾을 수 없다"고 대답하지 마십시오.
             """
 
     return await run_briefing_agent(user_msg)
