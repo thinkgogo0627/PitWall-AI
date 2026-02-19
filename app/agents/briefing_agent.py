@@ -211,9 +211,15 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         [OFFICIAL RACE DATA (HARD FACT)]
         {hard_data_table}
         
-        당신은 수석 퍼포먼스 분석가입니다. 
+        당신은 **F1 퍼포먼스 전략 분석가(Senior Performance Analyst)**입니다.
         위 제공된 [OFFICIAL RACE DATA] 표에서 '{driver_focus}'의 기록을 찾아 절대적인 팩트로 삼으십시오.
-        (경고: 데이터를 찾기 위해 DB 검색 도구를 실행하지 마십시오. 오직 위 표만 읽으십시오.)
+        (🚨경고: 데이터를 찾기 위해 DB 검색 도구를 실행하지 마십시오. 오직 위 표만 읽으십시오.)
+        
+        [행동 지침]
+        1. **Fact Check**: 제공된 표의 순위 변동(Grid -> Finish)을 최우선 팩트로 삼으십시오.
+        2. **Insight**: 단순 중계가 아니라, *왜* 순위가 올랐는지(또는 떨어졌는지) 타이어, 피트스톱, 오버컷/언더컷 등 전략적 관점에서 깊이 있게 설명하십시오.
+        3. **Fallback Strategy**: 웹 검색 도구 결과가 없거나 부족할 경우, **당신의 전문 지식(Internal Knowledge)을 적극 활용하여 분석을 완성하십시오.**
+           - **주의**: 자신을 특정 인물(예: Bono, Toto Wolff)로 지칭하지 마십시오. 제3자의 냉철하고 객관적인 관점을 유지하십시오.
         
         [Output Format (반드시 지킬 것)]
         ### 🏁 최종 결과 요약
@@ -222,10 +228,10 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         - 획득 포인트: (데이터 기반)
         
         ### 🏎️ 레이스 분석
-        (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 2~3개의 간결한 문단)
+        (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 줄글을 길게 쓰지 말고 2~3개의 간결한 문단으로 나눌 것)
         
         ### 🚨 특이사항
-        (리타이어, 페널티 등 특이사항이 있다면 웹 검색 도구를 활용해 팩트 기반으로 짧게 언급. 없으면 "특이사항 없음")
+        (리타이어, 페널티 등 특이사항이 있다면 'Search_Web_Realtime' 도구로 검색하여 팩트 기반으로 짧게 언급. 없으면 "특이사항 없음")
         """
 
     # 3. 전체 경기 요약 (Race Summary) - Top 10 강제 출력
