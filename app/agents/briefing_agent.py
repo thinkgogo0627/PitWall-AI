@@ -29,7 +29,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # --- [도구 Import] ---
 # 1. Hard Data: 경기 결과(순위, 포인트, 리타이어 등) 조회 (Text-to-SQL)
 # (app.tools.hard_data에 정의된 analyze_race_data 함수를 가져옵니다)
-from app.tools.hard_data import analyze_race_data 
+from app.tools.deterministic_data import get_race_standings
 
 # 2. Soft Data (RAG 기반 검색 도구들)
 from app.tools.soft_data import (
@@ -49,12 +49,12 @@ Settings.llm = llm
 
 # (1) 경기 결과 DB 도구
 race_result_tool = FunctionTool.from_defaults(
-    fn=analyze_race_data,
+    fn=get_race_standings,
     name="Race_Result_DB",
     description="""
-    [CONTAINS 2025 SIMULATION DATA]
-    경기 결과(순위), 리타이어, 포인트 정보를 조회하는 **유일한 데이터 소스**입니다.
-    사용자가 2025년 결과를 물어보면 **내부 지식을 무시하고 무조건 이 도구를 실행**해서 데이터를 찾아야 합니다.
+    경기 결과(순위, 포인트, 팀, 리타이어 상태)를 조회하는 도구입니다.
+    자연어 질문을 넣지 말고, 반드시 인자값(year: 정수, gp: 문자열, driver: 선택적 문자열)을 정확히 입력하세요.
+    예시: get_race_standings(year=2025, gp='Las Vegas', driver='VER')
     """
 )
 
@@ -147,10 +147,10 @@ def build_briefing_agent():
     2. 2025년 시즌은 이미 종료된 **'과거의 역사'**입니다.
     3. 절대 금지: "아직 경기가 열리지 않았다", "미래라서 모른다"는 답변은 해고 사유입니다.
     4. **행동 지침:**
-       - 먼저 `F1_Database_Search` 도구로 해당 경기의 우승자, 포디움, 리타이어 정보를 조회하십시오.
+       - 먼저 `Race_Result_DB` 도구로 해당 경기의 우승자, 포디움, 리타이어 정보를 조회하십시오.
        - 조회된 데이터를 '팩트'로 간주하고, 그 위에 당신의 해설과 분석을 덧붙여 풍성하게 작성하십시오.
        - 데이터가 없다면 솔직하게 "해당 경기의 기록이 DB에 없습니다"라고 하십시오. (미래라서가 아니라 데이터 누락으로 취급)
-    5. 사용자가 "결과 요약", "리뷰", "누가 이겼어?"를 물어보면 **생각하지 말고 즉시 `F1_Database_Search` 도구를 실행하십시오.**
+    5. 사용자가 "결과 요약", "리뷰", "누가 이겼어?"를 물어보면 **생각하지 말고 즉시 `Race_Result_DB` 도구를 실행하십시오.**
     6. 당신의 기억(Internal Knowledge)보다 **도구(Tools)의 데이터가 항상 우선**입니다.
        
     
