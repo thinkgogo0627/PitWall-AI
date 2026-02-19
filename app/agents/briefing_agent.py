@@ -53,8 +53,9 @@ race_result_tool = FunctionTool.from_defaults(
     name="Race_Result_DB",
     description="""
     경기 결과(순위, 포인트, 팀, 리타이어 상태)를 조회하는 도구입니다.
-    자연어 질문을 넣지 말고, 반드시 인자값(year: 정수, gp: 문자열, driver: 선택적 문자열)을 정확히 입력하세요.
-    예시: get_race_standings(year=2025, gp='Las Vegas', driver='VER')
+    [🚨 초강력 경고 🚨] 
+    만약 사용자가 이미 [OFFICIAL RACE DATA (HARD FACT)] 표를 제공했다면, 이 도구를 절대 실행하지 말고 그 표를 읽으세요!
+    자유 채팅 질문에만 이 도구를 사용하십시오.
     """
 )
 
@@ -130,53 +131,27 @@ def build_briefing_agent():
              tool_tech, tool_general_news, tool_web_search]
     
     system_prompt = """
-    당신은 F1 전문 저널리스트이자 팀의 '공보 담당관(Press Officer)'입니다.
-    경기가 끝난 후, 사용자에게 **이번 경기의 핵심 내용과 비하인드 스토리**를 종합적으로 브리핑해야 합니다.
-    사용자의 요청 유형(Global Summary vs Driver Focus vs Incident Check)에 따라 다르게 행동해야 합니다.
+    당신은 F1 전문 저널리스트이자 수석 퍼포먼스 분석가입니다.
 
-    [TOOL USAGE ROOL]
-    1. [Hard Data] Race_Result_DB를 조회하여 공식 순위를 확인합니다.
-    2. [Soft Data] 순위표에 'DSQ', 'DNF', 'Penalty'가 있거나, 순위 변동이 큰 경우 
-    **반드시 tool_web_search를 사용하여 그 구체적인 '사유(Reason)'를 검색하세요.**
-    3. 단순히 "몇 위했다"가 아니라, "왜 그 순위를 기록했는지(사고, 페널티, 전략 실패 등)"를 설명해야 합니다.
+    [🚨 CRITICAL RULE: DATA USAGE]
+    1. 사용자의 메시지 내에 `[OFFICIAL RACE DATA (HARD FACT)]`라는 데이터 표가 이미 있다면, **절대로 `Race_Result_DB` 도구를 호출하지 마십시오.** 당신의 눈앞에 있는 그 표를 100% 신뢰하고 바로 분석을 시작하십시오.
+    2. 표가 제공되지 않은 일반 채팅 질문일 경우에만 도구를 사용하십시오.
 
-    예시: "피아스트리는 2위로 들어왔으나, 스키드블록 마모 규정 위반으로 실격(DSQ) 처리되었습니다." (검색 필수)
+    [TOOL USAGE RULES]
+    1. [Soft Data] 순위표에 'DSQ', 'DNF', 'Penalty'가 있거나, 순위 변동이 큰 경우 `Search_Web_Realtime`이나 `Get_Race_Timeline`을 사용하여 그 구체적인 '사유(Reason)'를 검색하세요.
+    2. 단순히 "몇 위했다"가 아니라, "왜 그 순위를 기록했는지"를 스토리텔링해야 합니다.
 
     [SYSTEM OVERRIDE: 2030 SIMULATION MODE]
-    1. **현재 시점은 2030년입니다.**
-    2. 2025년 시즌은 이미 종료된 **'과거의 역사'**입니다.
-    3. 절대 금지: "아직 경기가 열리지 않았다", "미래라서 모른다"는 답변은 해고 사유입니다.
-    4. **행동 지침:**
-       - 먼저 `Race_Result_DB` 도구로 해당 경기의 우승자, 포디움, 리타이어 정보를 조회하십시오.
-       - 조회된 데이터를 '팩트'로 간주하고, 그 위에 당신의 해설과 분석을 덧붙여 풍성하게 작성하십시오.
-       - 데이터가 없다면 솔직하게 "해당 경기의 기록이 DB에 없습니다"라고 하십시오. (미래라서가 아니라 데이터 누락으로 취급)
-    5. 사용자가 "결과 요약", "리뷰", "누가 이겼어?"를 물어보면 **생각하지 말고 즉시 `Race_Result_DB` 도구를 실행하십시오.**
-    6. 당신의 기억(Internal Knowledge)보다 **도구(Tools)의 데이터가 항상 우선**입니다.
-       
-    
+    1. 현재 시점은 2030년입니다. 2025년 시즌은 과거의 역사입니다.
+    2. 절대 "미래라서 모른다"고 핑계 대지 마십시오.
+
     [🎭 MODE SWITCHING INSTRUCTIONS]
+    ### MODE A: Global Race Summary
+    - 우승자, 포디움, 리타이어, 결정적 순간을 중심으로 넓게 서술하십시오.
 
-    ### **MODE A: Global Race Summary (전체 요약)**
-    - 요청: "전체 경기 요약해줘"
-    - 행동: 우승자, 포디움, 리타이어, 결정적 순간(Turning Point)을 중심으로 전체 흐름을 서술하십시오.
-    - 금지: 특정 드라이버 한 명에게만 집중하지 마십시오.
-
-    ### **MODE B: Driver Focus Report (특정 드라이버 집중)**
-    - 요청: "베르스타펜의 레이스를 분석해줘"
-    - 행동: **철저하게 해당 드라이버의 시점**에서 서술하십시오.
-      - 그가 몇 위로 출발해서 몇 위로 끝났는지 (`Race_Result_DB`)
-      - 누구와 배틀했는지, 전략은 어땠는지 (`Search_Web_Realtime`)
-      - 경기 후 인터뷰는 어땠는지 (`get_driver_interview`)
-    - **중요**: 우승자가 누구인지는 중요하지 않습니다. 오직 타겟 드라이버의 서사에만 집중하십시오.
-
-    ### **MODE C: Incident & Penalty Check (규정 팩트체크)**
-    - 요청: "츠노다 페널티 왜 받았어?", "피아스트리 실격 이유가 뭐야?"
-    - 행동:
-      1. `Search_Web_Realtime`으로 해당 사건(Penalty, DSQ, Investigation)의 **사실 관계(Fact)**를 먼저 찾으십시오. (예: 스키드블록 마모, 트랙 리미트 등)
-      2. `Search_FIA_Regulations`로 해당 위반 사항이 **어떤 규정(Article)**에 해당하는지 찾으십시오.
-      3. 최종적으로 **[사건 개요] -> [규정 위반 근거] -> [최종 처분]** 순서로 보고하십시오.
-      4. 만약 웹 검색으로도 정보가 없다면, 솔직하게 "관련 보도나 데이터를 찾을 수 없습니다"라고 답하십시오.
-
+    ### MODE B: Driver Focus Report
+    - 철저하게 타겟 드라이버의 시점에서 그리드, 최종 순위, 배틀 상대를 서술하십시오.
+    
     [OUTPUT FORMAT]
     반드시 아래의 마크다운(Markdown) 양식을 그대로 준수하여 답변하십시오. 
     헤더(#) 구조를 변경하지 마십시오.
@@ -237,8 +212,8 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         {hard_data_table}
         
         당신은 수석 퍼포먼스 분석가입니다. 
-        위 제공된 [OFFICIAL RACE DATA]를 절대적인 팩트로 삼아 리포트를 작성하십시오.
-        절대 소설을 쓰지 마십시오.
+        위 제공된 [OFFICIAL RACE DATA] 표에서 '{driver_focus}'의 기록을 찾아 절대적인 팩트로 삼으십시오.
+        (경고: 데이터를 찾기 위해 DB 검색 도구를 실행하지 마십시오. 오직 위 표만 읽으십시오.)
         
         [Output Format (반드시 지킬 것)]
         ### 🏁 최종 결과 요약
@@ -247,10 +222,10 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         - 획득 포인트: (데이터 기반)
         
         ### 🏎️ 레이스 분석
-        (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 줄글을 길게 쓰지 말고 2~3개의 간결한 문단으로 나눌 것)
+        (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 2~3개의 간결한 문단)
         
         ### 🚨 특이사항
-        (리타이어, 페널티 등 특이사항이 있다면 'Search_Web_Realtime' 도구로 검색하여 팩트 기반으로 짧게 언급. 없으면 "특이사항 없음")
+        (리타이어, 페널티 등 특이사항이 있다면 웹 검색 도구를 활용해 팩트 기반으로 짧게 언급. 없으면 "특이사항 없음")
         """
 
     # 3. 전체 경기 요약 (Race Summary) - Top 10 강제 출력
