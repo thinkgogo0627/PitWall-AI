@@ -10,6 +10,8 @@ def get_race_standings(year: int, gp: str, driver: Optional[str] = None) -> str:
     [브리핑 에이전트 전용 도구]
     특정 연도, 그랑프리의 레이스 결과(순위, 드라이버, 팀, 포인트)를 조회합니다.
     """
+    clean_gp = gp.split('-')[0].strip()
+    
     conn = sqlite3.connect(DB_FILE_PATH)
     
     # 기본 쿼리 (LLM이 짤 필요 없이 완벽하게 고정됨)
@@ -18,7 +20,7 @@ def get_race_standings(year: int, gp: str, driver: Optional[str] = None) -> str:
         FROM race_results
         WHERE Year = ? AND Circuit LIKE ?
     """
-    params = [year, f"%{gp}%"]
+    params = [year, f"%{clean_gp}%"]
     
     # 드라이버가 지정된 경우 조건 추가
     if driver:
