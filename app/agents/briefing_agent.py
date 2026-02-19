@@ -218,48 +218,67 @@ async def run_briefing_agent(user_msg: str):
 # Streamlit 연동 함수
 async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -> str:
     """
-    복잡한 로직 제거 버전.
-    에이전트에게 "자율성"을 부여하여 검색과 내부 지식을 유연하게 섞도록 유도.
+    [Data Injection 버전]
+    LLM에게 도구를 쓰라고 시키지 않고, 파이썬이 먼저 DB를 조회해서 프롬프트에 하드 데이터를 꽂아줍니다.
+    환각(Hallucination) 원천 차단 및 응답 속도 극대화.
     """
     
-    # 1. 특정 드라이버 집중 분석 (Driver Focus)
+    # 1. 묻지도 따지지도 않고 일단 DB에서 확실한 순위표(Hard Data)를 뽑아옵니다.
+    # (LLM이 아닌 파이썬이 직접 실행)
+    hard_data_table = get_race_standings(year=year, gp=gp)
+
+    # 2. 특정 드라이버 집중 분석 (Driver Focus)
     if driver_focus:
         user_msg = f"""
         [TASK: DRIVER RACE ANALYSIS]
         Target: {year} {gp} - Driver: {driver_focus}
         
-        당신은 해당 드라이버의 **전담 레이스 엔지니어**입니다.
-        아래 지침에 따라 레이스 리포트를 작성하십시오.
+        [OFFICIAL RACE DATA (HARD FACT)]
+        {hard_data_table}
         
-        1. **Hard Data First**: 먼저 `Race_Result_DB`를 조회하여 정확한 순위, 포인트, 리타이어 여부를 확인하십시오. (필수)
-        2. **Storytelling**: 그가 누구와 배틀했는지, 스타트와 피니쉬는 어땠는지, 전략적 움직임은 어땠는지 서술하십시오.
-        3. **Flexible Search**: `Search_Web_Realtime`이나 `Search_Interviews` 도구를 사용하여 추가 정보를 찾으십시오.
-           - ⚠️ **중요**: 만약 도구가 "검색 결과 없음"을 반환하면, **즉시 당신의 내부 지식(Internal Knowledge)을 사용하여 공백을 채우십시오.**
-           - 절대 "정보를 찾을 수 없습니다"라고 보고하지 마십시오. 대신 "치열한 중위권 싸움 끝에..." 같은 일반적인 레이스 표현을 사용하여 자연스럽게 넘기십시오.
+        당신은 수석 퍼포먼스 분석가입니다. 
+        위 제공된 [OFFICIAL RACE DATA]를 절대적인 팩트로 삼아 리포트를 작성하십시오.
+        절대 소설을 쓰지 마십시오.
         
-        [Output Style]
-        - 전문적이고 분석적인 톤.
-        - 순위 변동(Grid vs Finish)에 주목.
+        [Output Format (반드시 지킬 것)]
+        ### 🏁 최종 결과 요약
+        - 그리드(Grid): (데이터 기반)
+        - 피니쉬(Finish): (데이터 기반)
+        - 획득 포인트: (데이터 기반)
+        
+        ### 🏎️ 레이스 분석
+        (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 줄글을 길게 쓰지 말고 2~3개의 간결한 문단으로 나눌 것)
+        
+        ### 🚨 특이사항
+        (리타이어, 페널티 등 특이사항이 있다면 'Search_Web_Realtime' 도구로 검색하여 팩트 기반으로 짧게 언급. 없으면 "특이사항 없음")
         """
 
-    # 2. 전체 경기 요약 (Race Summary)
+    # 3. 전체 경기 요약 (Race Summary) - Top 10 강제 출력
     else:
         user_msg = f"""
         [TASK: GRAND PRIX SUMMARY]
         Target: {year} {gp}
         
-        당신은 F1 전문 기자입니다. 이번 그랑프리의 하이라이트 기사를 작성하십시오.
+        [OFFICIAL RACE DATA (HARD FACT)]
+        {hard_data_table}
         
-        1. **Winner & Podium**: 우승자와 포디움 피니셔를 중심으로 서술하십시오. (`Race_Result_DB` 사용)
-        2. **Key Moments**: 사고, 리타이어, 세이프티카 등 변수를 체크하십시오. (`Get_Race_Timeline` 사용 권장)
-        3. **No Apologies**: 외부 검색 도구가 실패하더라도 사과하지 마십시오. 당신은 이미 모든 F1 역사를 알고 있는 전문가입니다. 아는 대로 쓰십시오.
+        당신은 F1 전문 기자입니다. 
+        위 [OFFICIAL RACE DATA]를 100% 신뢰하여 이번 그랑프리의 브리핑을 작성하십시오.
+        길고 지루한 줄글(Wall of text)을 절대 사용하지 마십시오.
         
-        [Output Style]
-        - 헤드라인 스타일의 제목.
-        - 3~4문단의 몰입감 있는 기사 형식.
+        [Output Format (반드시 지킬 것)]
+        ### 🏆 Top 10 레이스 결과
+        (제공된 데이터를 바탕으로 1위부터 10위까지 순위, 드라이버 이름, 소속 팀 명을 깔끔한 리스트 형태로 작성. 리타이어한 선수는 맨 아래에 따로 표기할 것)
+        
+        ### ⚡ 주요 하이라이트
+        (우승자의 퍼포먼스나 눈에 띄는 순위 상승을 이룬 선수를 3개 이하의 글머리 기호(Bullet points)로 간결하게 요약)
+        
+        ### 🚨 결정적 순간 (사건/사고)
+        (리타이어한 선수가 있거나 큰 사고가 있었다면 'Search_Web_Realtime' 도구 등을 활용해 팩트체크 후 1~2줄로 짧게 서술. 특이사항이 없다면 생략)
         """
 
     return await run_briefing_agent(user_msg)
+
 
 # --- [테스트 실행] ---
 if __name__ == "__main__":
