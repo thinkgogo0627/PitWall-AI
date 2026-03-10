@@ -295,7 +295,7 @@ with st.sidebar:
     st.title("🎛️ PitWall Command")
     
     st.subheader("📍 Race Session")
-    selected_year = st.selectbox("Year", [2021, 2022, 2023, 2024, 2025], index=3)
+    selected_year = st.selectbox("Year", [2021, 2022, 2023, 2024, 2025, 2026], index=3)
     _selected_gp_display = st.selectbox("Grand Prix", list(GP_MAP.keys()), index=11)
     selected_gp = GP_MAP[_selected_gp_display]
     
@@ -421,7 +421,8 @@ with tab3:
             with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing Traffic..."):
-                        prompt = f"2025 {selected_gp} {strategy_driver} 트래픽 및 페이스 분석. {JSON_RULE}"
+                        # [★ 수정됨] 2025 -> {selected_year}
+                        prompt = f"{selected_year} {selected_gp} {strategy_driver} 트래픽 및 페이스 분석. {JSON_RULE}"
                         res = asyncio.run(run_strategy_agent(prompt))
                         display_strategy_result(res)
 
@@ -430,7 +431,8 @@ with tab3:
              with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing Tires..."):
-                        prompt = f"2025 {selected_gp} {strategy_driver} 타이어 마모 및 스틴트 분석. {JSON_RULE}"
+                        # [★ 수정됨] 2025 -> {selected_year}
+                        prompt = f"{selected_year} {selected_gp} {strategy_driver} 타이어 마모 및 스틴트 분석. {JSON_RULE}"
                         res = asyncio.run(run_strategy_agent(prompt))
                         display_strategy_result(res)
 
@@ -439,7 +441,8 @@ with tab3:
              with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner("Full Report Generating..."):
-                        prompt = f"2025 {selected_gp} {strategy_driver} 종합 전략 평가 (트래픽, 타이어, 피트스탑). {JSON_RULE}"
+                        # [★ 수정됨] 2025 -> {selected_year}
+                        prompt = f"{selected_year} {selected_gp} {strategy_driver} 종합 전략 평가 (트래픽, 타이어, 피트스탑). {JSON_RULE}"
                         res = asyncio.run(run_strategy_agent(prompt))
                         display_strategy_result(res)
 
