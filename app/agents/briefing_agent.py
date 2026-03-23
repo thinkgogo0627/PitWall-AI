@@ -141,16 +141,11 @@ tool_general_news = FunctionTool.from_defaults(
 )
 
 def search_web_realtime(query: str) -> str:
-    """
-    DuckDuckGo를 사용하여 최신 뉴스, 루머, 페널티, 실격(DSQ) 사유를 검색합니다.
-    DB에 없는 구체적인 사건 사고(충돌 원인, 심의 결과 등)를 찾을 때 필수적입니다.
-    """
     try:
-        with DDGS() as ddgs:
+        with DDGS(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}, timeout=10) as ddgs:
             results = list(ddgs.text(query, max_results=3))
 
         if not results:
-            # ★ Fallback 금지: 검색 결과 없으면 모른다고 명시
             return "[WEB_SEARCH_NO_RESULT] 검색 결과를 찾을 수 없습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
 
         summary = ""
@@ -159,7 +154,6 @@ def search_web_realtime(query: str) -> str:
         return summary
 
     except Exception as e:
-        # ★ Fallback 금지: 에러 시에도 내부 지식 사용 절대 금지
         return "[WEB_SEARCH_FAILED] 웹 검색 도구에 오류가 발생했습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
 
 tool_web_search = FunctionTool.from_defaults(
