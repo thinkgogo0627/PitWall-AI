@@ -36,7 +36,7 @@ def get_race_standings(year: int, gp: str, driver: str = None) -> str:
     
     # 2. 번역기 돌리기 (매핑 테이블에 없으면 그냥 원래 글자 사용)
     search_keyword = GP_MAPPING.get(raw_gp, raw_gp)
-    search_keyword_underscore = search_keyword.replace(' ', '_')
+    search_keyword_sql = search_keyword.replace(' ', '%')
     
     conn = sqlite3.connect(DB_FILE_PATH)
     
@@ -47,8 +47,8 @@ def get_race_standings(year: int, gp: str, driver: str = None) -> str:
         WHERE Year = ? AND RaceID LIKE ?
     """
     # 예: RaceID LIKE '%Hungarian%'
-    params =  [year, f"%{search_keyword}%", f"%{search_keyword_underscore}%"]
-    
+    params =  [year, f"%{search_keyword_sql}%"]
+
     if driver:
         query += " AND Driver LIKE ?"
         params.append(f"%{driver}%")
