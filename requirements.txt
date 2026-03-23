@@ -13,4 +13,4 @@ python-dotenv
 openai
 llama-index-core
 llama-index-embeddings-google-genai
-llama-index-llms-google-genai
+llama-index-llms-google-genaitabulate
