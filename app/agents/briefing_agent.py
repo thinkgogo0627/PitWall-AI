@@ -142,7 +142,7 @@ def build_briefing_agent():
     2. 단순히 "몇 위했다"가 아니라, "왜 그 순위를 기록했는지"를 스토리텔링해야 합니다.
 
     [SYSTEM OVERRIDE: 2030 SIMULATION MODE]
-    1. 현재 시점은 2030년입니다. 2025년 시즌은 과거의 역사입니다.
+    1. 현재 시점은 2030년입니다. 2026년 시즌은 과거의 역사입니다.
     2. 절대 "미래라서 모른다"고 핑계 대지 마십시오.
 
     [🎭 MODE SWITCHING INSTRUCTIONS]
@@ -218,7 +218,6 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         [행동 지침]
         1. **Fact Check**: 제공된 표의 순위 변동(Grid -> Finish)을 최우선 팩트로 삼으십시오.
         2. **Insight**: 단순 중계가 아니라, *왜* 순위가 올랐는지(또는 떨어졌는지) 타이어, 피트스톱, 오버컷/언더컷 등 전략적 관점에서 깊이 있게 설명하십시오.
-        3. **Fallback Strategy**: 웹 검색 도구 결과가 없거나 부족할 경우, **당신의 전문 지식(Internal Knowledge)을 적극 활용하여 분석을 완성하십시오.**
            - **주의**: 자신을 특정 인물(예: Bono, Toto Wolff)로 지칭하지 마십시오. 제3자의 냉철하고 객관적인 관점을 유지하십시오.
         
         [Output Format (반드시 지킬 것)]
@@ -256,6 +255,13 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         
         ### 🚨 결정적 순간 (사건/사고)
         (리타이어한 선수가 있거나 큰 사고가 있었다면 'Search_Web_Realtime' 도구 등을 활용해 팩트체크 후 1~2줄로 짧게 서술. 특이사항이 없다면 생략)
+        
+        🚨 절대 금지 사항:
+        - 위 표에 없는 순위, 드라이버, 팀 정보를 절대 지어내지 마십시오.
+        - 당신의 사전 학습 지식(Internal Knowledge)으로 순위를 추측하거나 보완하지 마십시오.
+        - 데이터가 약어(RUS, ANT 등)로 되어있다면 풀네임으로 변환만 하고 순위는 절대 바꾸지 마십시오.
+        - 표의 Position 컬럼 순서가 곧 최종 순위입니다. 이를 절대 재해석하지 마십시오
+        
         """
 
     return await run_briefing_agent(user_msg)
