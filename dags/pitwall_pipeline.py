@@ -90,13 +90,17 @@ async def _crawl_and_save_generic(crawler_cls, target_url, platform_name):
         
     except Exception as e:
         print(f" 크롤러 전체 프로세스 에러: {e}")
-        raise e # 이건 Airflow에게 실패를 알리기 위함
+        raise 
         
     finally:
         # 안전하게 종료
-        if hasattr(crawler, 'driver'):
-            crawler.driver.quit()
-            print(" 드라이버 종료됨.")
+        print("🧹 크롤러 자원 정리(Cleanup)를 시작합니다...")
+        if crawler and hasattr(crawler, 'driver'):
+            try:
+                crawler.driver.quit()
+                print("✅ 드라이버 정상 종료됨. 좀비 세션 방지 완료!")
+            except Exception as quit_e:
+                print(f"🚨 드라이버 강제 종료 중 에러: {quit_e}")
 
 async def _run_rag_indexing():
     print("🧠 [Task] RAG 인덱싱 시작 (Target: Cloud DB)")
