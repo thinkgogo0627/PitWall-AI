@@ -51,7 +51,7 @@ async def _crawl_and_save_generic(crawler_cls, target_url, platform_name):
         # 1. 목록 수집
         if hasattr(crawler, 'crawl_listing_page'):
             print(f"📡 목록 수집 중... ({target_url})")
-            links = crawler.crawl_listing_page(target_url, max_clicks=3) # 클릭 수 늘림
+            links = crawler.crawl_listing_page(target_url, max_clicks=20) # 클릭 수 늘림
         else:
             print(f"⚠️ {platform_name}: crawl_listing_page 미구현. 건너뜀.")
             links = []

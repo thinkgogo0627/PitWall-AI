@@ -26,7 +26,7 @@ class AutosportCrawler(BaseSeleniumCrawler):
     # -------------------------------------------------------------------------
     # [NEW] 목록 페이지 순회 및 링크 수집 (Autosport 전용)
     # -------------------------------------------------------------------------
-    def crawl_listing_page(self, list_url: str, max_clicks: int = 3) -> list:
+    def crawl_listing_page(self, list_url: str, max_clicks: int = 20) -> list:
         print(f"📡 [Autosport] 목록 수집 시작: {list_url}")
         links = []
         

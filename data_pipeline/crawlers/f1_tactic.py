@@ -25,7 +25,7 @@ class Formula1Crawler(BaseSeleniumCrawler):
         # 유저 에이전트: 일반 윈도우 크롬인 척
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-    def crawl_listing_page(self, list_url: str, max_clicks: int = 3) -> list:
+    def crawl_listing_page(self, list_url: str, max_clicks: int = 20) -> list:
         print(f" 목록 수집 시작 (Max Clicks: {max_clicks}): {list_url}")
         links = []
         
