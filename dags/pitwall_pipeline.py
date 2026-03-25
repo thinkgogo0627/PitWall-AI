@@ -185,4 +185,4 @@ with DAG(
 
     # [Dependency Structure]
     # F1크롤러와 Autosport크롤러는 동시에 돌고, 둘 다 끝나면 인덱싱 시작
-    [t1_f1, t2_autosport] >> t3_index
+    t1_f1 >> t2_autosport >> t3_index
