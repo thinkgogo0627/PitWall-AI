@@ -9,7 +9,8 @@ class F1Retriever:
         if not qdrant_url:
             qdrant_url = os.getenv("QDRANT_URL")
         
-        self.client = QdrantClient(url=qdrant_url)
+        self.client = QdrantClient(url=qdrant_url,
+                                   api_key= os.getenv('QDRANT_API_KEY'))
         self.collection_name = collection_name
         
         # [수정] 무거운 로컬 모델 대신 구글 API 모델 로드

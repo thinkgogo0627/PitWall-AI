@@ -1,186 +1,145 @@
-# data/soft_data.py
-
-## RAG 검색 도구 구현
-## 
-
-# data/soft_data.py
+# app/tools/soft_data.py
+#
+# RAG 검색 도구 — 통합 버전
+#
+# 변경사항:
+#   - DuckDuckGo (search_f1_news_web) 완전 제거
+#   - 목적별 4개 함수 → search_f1_context() 단일 함수로 통합
+#   - retriever.py의 F1Retriever 직접 활용
 
 import sys
 import os
 import logging
-from qdrant_client import QdrantClient
-from duckduckgo_search import DDGS
 
-# [경로 설정] 로컬/Docker 어디서든 모듈을 찾을 수 있게
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-
 
 from data_pipeline.retriever import F1Retriever
 
-# 로거 설정
 logger = logging.getLogger(__name__)
 
-# --- 1. 검색 엔진 시동 (Global Instance) ---
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None) # 로컬은 None
+# ────────────────────────────────────────
+# 1. RAG 엔진 초기화 (Global Instance)
+# ────────────────────────────────────────
+QDRANT_URL    = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 
 try:
-    # API Key가 있으면 클라우드 모드로 접속
-    if QDRANT_API_KEY:
-        client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-    else:
-        client = QdrantClient(url=QDRANT_URL)
-    print(f"✅ Connected to Qdrant: {QDRANT_URL}")
+    retriever_engine = F1Retriever(
+        qdrant_url=QDRANT_URL,
+        collection_name="f1_knowledge_base"
+    )
+    print("✅ RAG Search Engine Ready.")
 except Exception as e:
-    print(f"❌ Connection Failed: {e}")
-
-try:
-    # F1Retriever 인스턴스 생성 (여기서 임베딩 모델 로드됨)
-    retriever_engine = F1Retriever(qdrant_url=QDRANT_URL)
-    print(" RAG Search Engine Ready.")
-except Exception as e:
-    print(f" RAG Engine Load Failed: {e}")
+    print(f"❌ RAG Engine Load Failed: {e}")
     retriever_engine = None
 
 
-# ---------------------------------------------------------
-# 🛠️ Helper: 검색 결과 포맷팅 (LLM이 읽기 좋게)
-# ---------------------------------------------------------
-def _format_rag_results(results: list) -> str:
+# ────────────────────────────────────────
+# 2. Helper: 검색 결과 → LLM 프롬프트용 텍스트 포맷팅
+# ────────────────────────────────────────
+def _format_rag_results(results: list, max_chars: int = 2000) -> str:
+    """
+    retriever.search()가 반환한 dict 리스트를 LLM이 읽기 좋은 형태로 변환.
+    각 문서는 제목/출처/날짜/유사도/내용 순서로 정리.
+    """
     if not results:
         return "관련 정보를 찾지 못했습니다."
-    
+
     context_list = []
     for i, hit in enumerate(results, 1):
-        # retriever.search()가 반환하는 dict 구조 활용
-        score = hit.get('score', 0.0)
-        title = hit.get('title', 'No Title')
-        source = hit.get('platform', 'Unknown Source') # platform 필드 사용
-        date = hit.get('published_at', '')[:10]
-        text = hit.get('text', '').strip()
-        
-        # 텍스트가 너무 길면 500자에서 자르기 (토큰 절약)
-        if len(text) > 2000:
-            text = text[:2000] + "...(more)"
+        score   = hit.get('score', 0.0)
+        title   = hit.get('title', 'No Title')
+        source  = hit.get('platform', 'Unknown')
+        date    = str(hit.get('published_at', ''))[:10]
+        text    = hit.get('text', '').strip()
+
+        # 너무 긴 본문은 잘라서 토큰 절약
+        if len(text) > max_chars:
+            text = text[:max_chars] + "..."
 
         context_list.append(
             f"[{i}] 제목: {title}\n"
             f"    출처: {source} ({date}) | 유사도: {score:.3f}\n"
             f"    내용: {text}"
         )
+
     return "\n\n".join(context_list)
 
 
-# ---------------------------------------------------------
-#  1. 드라이버 인터뷰 검색 (심리/의도 파악용)
-# ---------------------------------------------------------
-def get_driver_interview(driver: str, event: str = "") -> str:
+# ────────────────────────────────────────
+# 3. 핵심 함수: 통합 RAG 검색
+# ────────────────────────────────────────
+def search_f1_context(query: str, limit: int = 4, score_threshold: float = 0.45) -> str:
     """
-    특정 드라이버나 관계자의 인터뷰, 발언, 심정을 검색합니다.
-    (예: "Verstappen", "Monaco GP")
-    """
-    if not retriever_engine: return "!! 검색 엔진 오류 !!"
-    
-    # 💡 [Prompt Engineering] 검색어 뒤에 'interview', 'quotes' 등을 붙여 인터뷰 기사 유도
-    query = f"{driver} {event} interview quotes reaction said statement"
-    print(f" [Search] Interview: '{query}'")
-    
-    # 인터뷰는 정확도가 중요하므로 threshold를 약간 높게(0.5)
-    results = retriever_engine.search(query, limit=4, score_threshold=0.5)
-    
-    if not results:
-        return f"'{driver}' 선수의 관련 인터뷰를 찾지 못했습니다."
-        
-    return f"##  {driver} 인터뷰/발언 검색 결과:\n" + _format_rag_results(results)
+    [통합 RAG 검색]
+    사용자 질문을 그대로 받아서 Qdrant에서 가장 관련성 높은 문서를 검색합니다.
+    브리핑 에이전트의 generate_quick_summary에서 Data Injection 용도로 사용.
 
+    Args:
+        query           : 검색 쿼리 (사용자 입력 또는 year+gp 조합)
+        limit           : 반환할 최대 문서 수 (기본 4개)
+        score_threshold : 최소 유사도 점수 (기본 0.45)
 
-# ---------------------------------------------------------
-#  2. 기술/업데이트 분석 (차량 성능 파악용)
-# ---------------------------------------------------------
-def search_technical_analysis(team: str, component: str = "") -> str:
+    Returns:
+        LLM 프롬프트에 주입할 포맷팅된 문자열
     """
-    팀의 기술 업데이트, 차량 문제, 공기역학 분석 리포트를 검색합니다.
-    (예: "Ferrari", "Floor upgrade")
-    """
-    if not retriever_engine: return "!! 검색 엔진 오류 !!"
-    
-    # 기술 용어 가중치 추가
-    query = f"{team} {component} technical analysis upgrade aerodynamics performance issues"
-    print(f" [Search] Tech: '{query}'")
-    
-    results = retriever_engine.search(query, limit=3, score_threshold=0.55)
-    
-    return f"##  {team} 기술 분석 리포트:\n" + _format_rag_results(results)
+    if not retriever_engine:
+        return "[RAG_UNAVAILABLE] RAG 엔진을 사용할 수 없습니다."
 
+    print(f"🔍 [RAG Search] '{query}' (limit={limit}, threshold={score_threshold})")
 
-# ---------------------------------------------------------
-#  3. 규정 및 판례 검색 (전략/시뮬레이션용)
-# ---------------------------------------------------------
-def search_regulation_precedent(keyword: str) -> str:
-    """
-    FIA 규정 위반, 페널티 사례, 심판 판정 등을 검색합니다.
-    (예: "impeding penalty", "track limits")
-    """
-    if not retriever_engine: return " 검색 엔진 오류"
-    
-    query = f"{keyword} FIA steward decision penalty regulation rule breach"
-    print(f" [Search] Regulation: '{query}'")
-    
-    results = retriever_engine.search(query, limit=3, score_threshold=0.5)
-    
-    return f"##  규정 및 페널티 사례:\n" + _format_rag_results(results)
-
-
-# ---------------------------------------------------------
-#  4. 타임라인/일반 뉴스 (브리핑용)
-# ---------------------------------------------------------
-def get_event_timeline(topic: str) -> str:
-    """
-    특정 주제나 그랑프리의 전반적인 흐름(Timeline)을 파악합니다.
-    """
-    if not retriever_engine: return "⚠️ 검색 엔진 오류"
-    
-    print(f" [Search] Timeline: '{topic}'")
-    results = retriever_engine.search(topic, limit=5, score_threshold=0.5)
-    
-    return f"##  '{topic}' 관련 뉴스 요약:\n" + _format_rag_results(results)
-
-
-# ---------------------------------------------------------
-#  5. Web 검색 (최신 정보 보완 - DuckDuckGo)
-# ---------------------------------------------------------
-def search_f1_news_web(query: str) -> str:
-    """
-    (Legacy) RAG에 없는 최신 실시간 정보를 웹에서 검색합니다.
-    """
-    print(f" [Web Search] '{query}'")
     try:
-        results = []
-        with DDGS() as ddgs:
-            ddg_results = list(ddgs.text(query, max_results=3))
-            for r in ddg_results:
-                results.append(f"Title: {r.get('title')}\nLink: {r.get('href')}\nSummary: {r.get('body')}")
-        return "\n---\n".join(results) if results else "검색 결과 없음"
+        results = retriever_engine.search(
+            query=query,
+            limit=limit,
+            score_threshold=score_threshold
+        )
+
+        if not results:
+            return f"[RAG_NO_RESULT] '{query}'에 관련된 문서를 찾지 못했습니다."
+
+        print(f"   → {len(results)}개 문서 검색됨 (최고 유사도: {results[0].get('score', 0):.3f})")
+        return _format_rag_results(results)
+
     except Exception as e:
-        logger.error(f"Web search failed: {e}")
-        return f"웹 검색 오류: {e}"
+        logger.error(f"RAG search failed: {e}")
+        return f"[RAG_ERROR] 검색 중 오류가 발생했습니다: {e}"
 
 
-# --- 테스트 실행부 (Main) ---
+# ────────────────────────────────────────
+# 4. (하위 호환) 기존 함수명 유지 — briefing_agent import 오류 방지
+#    나중에 briefing_agent.py 정리 후 삭제 예정
+# ────────────────────────────────────────
+def get_driver_interview(driver: str, event: str = "") -> str:
+    query = f"{driver} {event} interview quotes reaction"
+    return search_f1_context(query, limit=4)
+
+def search_technical_analysis(team: str, component: str = "") -> str:
+    query = f"{team} {component} technical analysis upgrade aerodynamics"
+    return search_f1_context(query, limit=3)
+
+def search_regulation_precedent(keyword: str) -> str:
+    query = f"{keyword} FIA regulation penalty rule"
+    return search_f1_context(query, limit=3)
+
+def get_event_timeline(topic: str) -> str:
+    return search_f1_context(topic, limit=5)
+
+
+# ────────────────────────────────────────
+# 테스트 실행
+# ────────────────────────────────────────
 if __name__ == "__main__":
-    print("\n" + "="*50)
-    print("🚦 PitWall RAG Tools Test")
-    print("="*50)
+    test_queries = [
+        "Ferrari Macarena rear wing 2026",
+        "Mercedes power unit compression ratio controversy",
+        "Piastri DNS Chinese GP reason",
+        "Russell 2026 Australian GP win strategy",
+    ]
 
-    # 1. 기술 분석 테스트
-    print(search_technical_analysis("Mercedes", "update"))
-    
-    print("\n" + "-"*30 + "\n")
-    
-    # 2. 인터뷰 검색 테스트
-    print(get_driver_interview("Verstappen", "retirement"))
-
-    print("\n" + "-"*30 + "\n")
-
-    # 3. 규정 관련 테스트
-    print(search_regulation_precedent("two move"))
+    for q in test_queries:
+        print(f"\n{'='*60}")
+        print(f"쿼리: {q}")
+        print('='*60)
+        result = search_f1_context(q, limit=3)
+        print(result)

@@ -28,12 +28,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # --- [도구 Import] ---
 from app.tools.deterministic_data import get_race_standings
-from app.tools.soft_data import (
-    search_f1_news_web,
-    get_driver_interview,
-    search_technical_analysis,
-    get_event_timeline
-)
+from app.tools.soft_data import search_f1_context
 from app.regulation_tool import regulation_tool
 
 # --- [★ 드라이버 약어 → 풀네임 변환 테이블] ---
