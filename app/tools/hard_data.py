@@ -15,12 +15,8 @@ env_path = os.path.join(PROJECT_ROOT, '.env')
 DB_FILE_PATH = os.path.join(PROJECT_ROOT, 'data', 'f1_data.db')
 
 
-# .env 로드 실행
 if os.path.exists(env_path):
     load_dotenv(env_path)
-    print(f" .env 로드 성공: {env_path}")
-else:
-    print(f" .env 파일을 찾을 수 없습니다: {env_path}")
 
 api_key = os.getenv("GOOGLE_API_KEY")
 
