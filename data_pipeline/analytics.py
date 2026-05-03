@@ -73,10 +73,15 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
         if laps.empty: return pd.DataFrame()
 
         # 트래픽 감지
-        if 'TimeDiffToAhead' in laps.columns:
-            # 1.0초 미만이면 트래픽
-            laps['InTraffic'] = laps['TimeDiffToAhead'] < 1.0
-        else:
+        try:
+            if 'TimeDiffToAhead' in laps.columns and laps['TimeDiffToAhead'].notna().any():
+                laps = laps.copy()
+                laps['InTraffic'] = laps['TimeDiffToAhead'].fillna(99) < 1.0
+            else:
+                laps = laps.copy()
+                laps['InTraffic'] = False
+        except Exception:
+            laps = laps.copy()
             laps['InTraffic'] = False
 
         # 5. 스틴트별 정밀 분석
