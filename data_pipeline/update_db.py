@@ -60,7 +60,7 @@ def update_race_results(year: int, gp: str):
             conn.close()
 
 if __name__ == "__main__":
-    # 2026년 개막전 호주 GP 실행
-    update_race_results(2026, 'Chinese')
+    # 2026년 3라운드 일본 GP 실행
+    update_race_results(2026, 'Japanese')
     print(f"DB 경로: {DB_FILE_PATH}")
     print(f"DB 존재 여부: {os.path.exists(DB_FILE_PATH)}")

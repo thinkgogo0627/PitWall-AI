@@ -28,7 +28,12 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # --- [도구 Import] ---
 from app.tools.deterministic_data import get_race_standings
-from app.tools.soft_data import search_f1_context
+from app.tools.soft_data import (
+    search_f1_context,
+    get_driver_interview,
+    search_technical_analysis,
+    get_event_timeline,
+)
 from app.regulation_tool import regulation_tool
 
 # --- [★ 드라이버 약어 → 풀네임 변환 테이블] ---
@@ -130,7 +135,7 @@ tool_timeline = FunctionTool.from_defaults(
 )
 
 tool_general_news = FunctionTool.from_defaults(
-    fn=search_f1_news_web,
+    fn=search_f1_context,
     name="Search_General_News",
     description="위의 특화 도구들로 찾을 수 없는 일반적인 가십이나 이슈, 혹은 광범위한 정보를 찾을 때 보조적으로 사용하세요."
 )
