@@ -40,9 +40,11 @@ def wrapper_audit_strategy(year: int, circuit: str, driver_identifier: str) -> s
     """드라이버의 스틴트별 페이스, 트래픽, 피트 타이밍, 스틴트 길이 평가를 수행합니다."""
     try:
         df = audit_race_strategy(year, circuit, str(driver_identifier))
-        if df.empty: return "데이터 없음 (드라이버명 확인 필요)"
+        if df.empty:
+            return f"[NO_DATA] {year} {circuit} - driver '{driver_identifier}' 데이터를 찾을 수 없음. 드라이버 번호(숫자) 또는 약어가 정확한지 확인하세요."
         return f"STRATEGY AUDIT DATA:\n{df.to_markdown(index=False)}"
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        return f"[TOOL_ERROR] {type(e).__name__}: {e}"
 
 strategy_tool = FunctionTool.from_defaults(
     fn=wrapper_audit_strategy,
@@ -54,9 +56,11 @@ strategy_tool = FunctionTool.from_defaults(
 def wrapper_tire_deg(year: int, circuit: str) -> str:
     try:
         df = calculate_tire_degradation(year, circuit)
-        if df.empty: return "타이어 데이터 부족"
+        if df.empty:
+            return f"[NO_DATA] {year} {circuit} 타이어 데이터 없음"
         return f"TIRE DEGRADATION STATS:\n{df.to_markdown(index=False)}"
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        return f"[TOOL_ERROR] {type(e).__name__}: {e}"
 
 tire_tool = FunctionTool.from_defaults(
     fn=wrapper_tire_deg,

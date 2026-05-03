@@ -123,8 +123,8 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
         return pd.DataFrame(stint_summary)
 
     except Exception as e:
-        print(f"Strategy Audit Error: {e}")
-        return pd.DataFrame()
+        logger.error(f"Strategy Audit Error [{year} {circuit} {driver_identifier}]: {type(e).__name__}: {e}")
+        raise
 # =============================================================================
 # 2. 타이어 성능 분석 (기존 유지)
 # =============================================================================
