@@ -224,16 +224,47 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
         driver2 = _normalize_name(driver2)
 
         print(f"🗺️ [Dominance] Generating Map: {year} {race} ({driver1} vs {driver2})...")
-        
-        # [★ 수정] 헬퍼 함수로 세션 로드 (도미넌스는 telemetry 필수!)
-        session = _get_loaded_session(year, race, load_telemetry=True)
 
-        lap1 = session.laps.pick_drivers(driver1).pick_fastest()
-        lap2 = session.laps.pick_drivers(driver2).pick_fastest()
+        # [★ 핀포인트 수술] 캐시 삭제 없이 2번 도구만 살리는 로직
+        try:
+            # 1차 시도: 기존 캐시에서 로드 시도
+            session = _get_loaded_session(year, race, load_telemetry=True)
+            lap1 = session.laps.pick_driver(driver1).pick_fastest()
+            
+            if lap1 is None or pd.isna(lap1.get('LapTime')):
+                raise ValueError("랩 데이터가 없습니다.")
+                
+            _ = lap1.get_telemetry() # 텔레메트리가 진짜 있는지 찔러봄 (없으면 여기서 에러 터짐)
+            lap2 = session.laps.pick_driver(driver2).pick_fastest()
+            
+        except Exception as e:
+            print(f"⚠️ [Dominance] 로컬 캐시에 텔레메트리 누락 감지! 다른 기능 보호를 위해 2번 도구만 캐시를 우회합니다... ({e})")
+            
+            # 2차 시도: 1, 3번 도구가 쓰는 캐시를 보호하기 위해, 캐시 기능을 일시 정지하고 강제 다운로드
+            fastf1.Cache.disable_cache()
+            
+            # fastf1이 알아먹게 트랙명 보정 (안 그러면 또 못 찾음)
+            matched_event = race
+            if "japan" in race.lower() or "suzuka" in race.lower(): matched_event = "Japanese"
+            elif "cota" in race.lower() or "austin" in race.lower() or "united states" in race.lower(): matched_event = "United States"
+            elif "saopaulo" in race.lower() or "brazil" in race.lower(): matched_event = "Sao Paulo"
+            elif "china" in race.lower() or "shanghai" in race.lower(): matched_event = "Chinese"
+            elif "britain" in race.lower() or "silverstone" in race.lower() or "uk" in race.lower(): matched_event = "British"
+            
+            session = fastf1.get_session(year, matched_event, 'R')
+            session.load(laps=True, telemetry=True, weather=False, messages=False)
+            
+            # 볼일 끝났으면 다른 도구들을 위해 캐시 다시 켜기! (매우 중요)
+            fastf1.Cache.enable_cache(CACHE_DIR)
+
+            lap1 = session.laps.pick_driver(driver1).pick_fastest()
+            lap2 = session.laps.pick_driver(driver2).pick_fastest()
+
 
         if lap1 is None or lap2 is None:
-            return " 데이터 부족: 텔레메트리 분석을 위한 랩 데이터가 없습니다."
+            return "데이터 부족: 두 드라이버의 정상적인 랩 타임(Fastest Lap)을 찾을 수 없습니다."
 
+        # 텔레메트리 추출 및 분석
         tel1 = lap1.get_telemetry().add_distance()
         tel2 = lap2.get_telemetry().add_distance()
 
@@ -267,14 +298,16 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
         
         plt.title(f"{year} {session.event['EventName']} Track Dominance\n({driver1} vs {driver2})", color='white', fontsize=15, fontweight='bold')
 
-        filename = f"{year}_{race}_Dominance_{driver1}_vs_{driver2}.png".replace(" ", "_")
+        filename = f"{year}_{session.event['EventName']}_Dominance_{driver1}_vs_{driver2}.png".replace(" ", "_")
         return _save_plot(filename)
 
     except Exception as e:
         import traceback
         traceback.print_exc()
+        # 혹시 에러가 나더라도 캐시는 무조건 다시 켜지도록 보장
+        try: fastf1.Cache.enable_cache(CACHE_DIR)
+        except: pass
         return f"Dominance Map Error: {str(e)}"
-    
 
 # -----------------------------------------------------------------------------
 # 3. [Plotly] 스피드 트레이스 (Interactive)

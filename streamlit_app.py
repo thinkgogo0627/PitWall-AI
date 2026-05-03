@@ -569,7 +569,7 @@ with tab3:
     strategy_container = st.container()
     
     JSON_RULE = "\nReturn strictly a JSON Array. No markdown."
-    
+
     with col_s1:
         if st.button("🚦 Traffic & Pace", use_container_width=True):
             with strategy_container:
