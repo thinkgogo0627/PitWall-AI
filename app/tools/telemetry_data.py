@@ -302,12 +302,31 @@ def generate_track_dominance_plot(year: int, race: str, driver1: str, driver2: s
         return _save_plot(filename)
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        # 혹시 에러가 나더라도 캐시는 무조건 다시 켜지도록 보장
-        try: fastf1.Cache.enable_cache(CACHE_DIR)
-        except: pass
-        return f"Dominance Map Error: {str(e)}"
+            print(f"⚠️ [Dominance] 로컬 캐시에 텔레메트리 누락 감지! 임시 폴더로 우회합니다... ({e})")
+            
+            # [★ 진짜 해결책] 존재하지 않는 disable_cache 대신, 일회용 임시 폴더를 캐시로 지정
+            import tempfile
+            temp_cache_dir = os.path.join(tempfile.gettempdir(), 'fastf1_temp_bypass')
+            os.makedirs(temp_cache_dir, exist_ok=True)
+            fastf1.Cache.enable_cache(temp_cache_dir)
+            
+            # fastf1이 알아먹게 트랙명 보정
+            matched_event = race
+            if "japan" in race.lower() or "suzuka" in race.lower(): matched_event = "Japanese"
+            elif "cota" in race.lower() or "austin" in race.lower() or "united states" in race.lower(): matched_event = "United States"
+            elif "saopaulo" in race.lower() or "brazil" in race.lower(): matched_event = "Sao Paulo"
+            elif "china" in race.lower() or "shanghai" in race.lower(): matched_event = "Chinese"
+            elif "britain" in race.lower() or "silverstone" in race.lower() or "uk" in race.lower(): matched_event = "British"
+            
+            session = fastf1.get_session(year, matched_event, 'R')
+            session.load(laps=True, telemetry=True, weather=False, messages=False)
+            
+            # 볼일 끝났으면 다른 도구들을 위해 기존 캐시 경로(CACHE_DIR)로 원상 복구!
+            fastf1.Cache.enable_cache(CACHE_DIR)
+
+            lap1 = session.laps.pick_driver(driver1).pick_fastest()
+            lap2 = session.laps.pick_driver(driver2).pick_fastest()
+        
 
 # -----------------------------------------------------------------------------
 # 3. [Plotly] 스피드 트레이스 (Interactive)
