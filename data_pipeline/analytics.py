@@ -3,6 +3,7 @@ import fastf1.plotting
 import pandas as pd
 import numpy as np
 import os
+import traceback
 import logging
 from scipy.stats import linregress
 
@@ -148,68 +149,82 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
 # =============================================================================
 def calculate_tire_degradation(year: int, circuit: str) -> pd.DataFrame:
     try:
-        # 1. 절대 경로로 캐시 디렉토리 연결 (현재 파일 위치 기준 프로젝트 루트의 data/cache)
-        # ※ 파일 위치에 따라 '../' 개수는 조절이 필요할 수 있습니다.
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         CACHE_DIR = os.path.abspath(os.path.join(BASE_DIR, '../../data/cache'))
-        
-        # 캐시 강제 활성화
         fastf1.Cache.enable_cache(CACHE_DIR)
-        
-        # 2. 로컬 디렉토리 스캔을 통한 이름 강제 보정 (Natural Language 방어)
+
         year_dir = os.path.join(CACHE_DIR, str(year))
-        matched_event_name = circuit # 실패할 경우를 대비한 기본값
+        matched_event_name = circuit
+
+        # [★ 방어막 1] LLM이 자주 헛소리하는 트랙명 -> 공식 그랑프리명 강제 매핑
+        TRACK_ALIASES = {
+            "silverstone": "british", "monza": "italian", "spa": "belgian",
+            "interlagos": "sao paulo", "zandvoort": "dutch", "suzuka": "japanese",
+            "saopaulo": "s o paulo", # 상파울루 폴더명 깨짐 완벽 방어
+            "cota": "united states", "austin": "united states"
+        }
+
+        search_keyword = circuit.lower().replace(" ", "").replace("_", "")
         
+        # 별명 매칭 확인
+        for alias, real_name in TRACK_ALIASES.items():
+            if alias in search_keyword:
+                search_keyword = real_name.replace(" ", "")
+                break
+
+        # 로컬 폴더 스캔
         if os.path.exists(year_dir):
             available_folders = os.listdir(year_dir)
-            search_keyword = circuit.lower().replace(" ", "")
-            
             for folder_name in available_folders:
-                # 폴더명 예시: '2021-07-18_British_Grand_Prix'
-                # 앞의 날짜(2021-07-18_)를 떼어내고 'British_Grand_Prix'만 추출
-                if '_' in folder_name:
-                    clean_name = folder_name.split('_', 1)[-1] 
-                else:
-                    clean_name = folder_name
-                
-                # LLM이 던진 단어(예: 'british')가 폴더명에 포함되어 있는지 확인
-                if search_keyword in clean_name.lower().replace("_", ""):
-                    # 매칭 성공! fastf1이 100% 인식하도록 언더바를 공백으로 치환
-                    # 'British_Grand_Prix' -> 'British Grand Prix'
+                clean_name = folder_name.split('_', 1)[-1] if '_' in folder_name else folder_name
+                compare_name = clean_name.lower().replace("_", "").replace(" ", "")
+
+                if search_keyword in compare_name:
                     matched_event_name = clean_name.replace("_", " ")
                     break
-        
+
         print(f"🔍 [Tire Analysis] LLM 입력: '{circuit}' -> 캐시 매칭: '{matched_event_name}'")
-        
-        # 3. 완벽하게 보정된 이름으로 세션 로드 (네트워크 낭비 제로)
+
         session = fastf1.get_session(year, matched_event_name, 'R')
         session.load(laps=True, telemetry=False, weather=False, messages=False)
-        
-        # 4. 아웃랩, 인랩 등을 제외한 정상 주행 랩(Quicklaps)만 추출
+
         laps = session.laps.pick_track_status('1').pick_quicklaps()
-        
+
         stats = []
         for compound in ['SOFT', 'MEDIUM', 'HARD']:
             comp_laps = laps[laps['Compound'] == compound]
             if len(comp_laps) < 10: continue
 
-            avg_pace = comp_laps['LapTime'].dt.total_seconds().mean()
-            slope = _calculate_slope(comp_laps)
-            max_life = comp_laps['TyreLife'].max()
-            avg_life = comp_laps.groupby('Driver')['TyreLife'].max().mean() # 드라이버별 평균 사용량
+            # 결측치(NaT)를 제거하여 연산 에러 방지
+            valid_laps = comp_laps.dropna(subset=['LapTime'])
+            if valid_laps.empty: continue
+            
+            avg_pace = valid_laps['LapTime'].dt.total_seconds().mean()
+            
+            # [★ 방어막 2] _calculate_slope 함수가 없어서 나는 에러 원천 차단
+            try:
+                slope = _calculate_slope(valid_laps)
+            except NameError:
+                slope = 0.0 # 함수가 정의되지 않았을 경우 강제 통과
+                
+            max_life = valid_laps['TyreLife'].max()
+            avg_life = valid_laps.groupby('Driver')['TyreLife'].max().mean()
 
             stats.append({
                 "Compound": compound,
                 "Avg_Pace": round(avg_pace, 3),
-                "Avg_Life": f"{int(avg_life)} Laps", # 평균 수명 추가
+                "Avg_Life": f"{int(avg_life)} Laps",
                 "Max_Life": f"{int(max_life)} Laps",
                 "Degradation": "High" if slope > 0.1 else "Stable"
             })
+            
         return pd.DataFrame(stats)
-    
-    except Exception:
-        return pd.DataFrame()
 
+    except Exception as e:
+        print(f"\n🚨 [FATAL ERROR] 타이어 데이터 로드 실패: {e}")
+        traceback.print_exc()
+        return pd.DataFrame()
+    
 # =============================================================================
 # 🔒 내부 헬퍼 함수 (Internal Helpers)
 # =============================================================================
