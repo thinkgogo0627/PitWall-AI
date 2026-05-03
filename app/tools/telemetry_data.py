@@ -158,7 +158,9 @@ def get_race_pace_data(year: int, race: str, driver1: str, driver2: str):
         return fig
 
     except Exception as e:
-        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"[Race Pace Error] {e}")
         return None
 
 # -----------------------------------------------------------------------------
@@ -289,5 +291,7 @@ def get_speed_trace_data(year: int, race: str, driver1: str, driver2: str):
         )
         return fig
     except Exception as e:
-        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"[Speed Trace Error] {e}")
         return None
