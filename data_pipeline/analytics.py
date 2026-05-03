@@ -148,8 +148,44 @@ def audit_race_strategy(year: int, circuit: str, driver_identifier: str) -> pd.D
 # =============================================================================
 def calculate_tire_degradation(year: int, circuit: str) -> pd.DataFrame:
     try:
-        session = fastf1.get_session(year, circuit, 'R')
+        # 1. 절대 경로로 캐시 디렉토리 연결 (현재 파일 위치 기준 프로젝트 루트의 data/cache)
+        # ※ 파일 위치에 따라 '../' 개수는 조절이 필요할 수 있습니다.
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        CACHE_DIR = os.path.abspath(os.path.join(BASE_DIR, '../../data/cache'))
+        
+        # 캐시 강제 활성화
+        fastf1.Cache.enable_cache(CACHE_DIR)
+        
+        # 2. 로컬 디렉토리 스캔을 통한 이름 강제 보정 (Natural Language 방어)
+        year_dir = os.path.join(CACHE_DIR, str(year))
+        matched_event_name = circuit # 실패할 경우를 대비한 기본값
+        
+        if os.path.exists(year_dir):
+            available_folders = os.listdir(year_dir)
+            search_keyword = circuit.lower().replace(" ", "")
+            
+            for folder_name in available_folders:
+                # 폴더명 예시: '2021-07-18_British_Grand_Prix'
+                # 앞의 날짜(2021-07-18_)를 떼어내고 'British_Grand_Prix'만 추출
+                if '_' in folder_name:
+                    clean_name = folder_name.split('_', 1)[-1] 
+                else:
+                    clean_name = folder_name
+                
+                # LLM이 던진 단어(예: 'british')가 폴더명에 포함되어 있는지 확인
+                if search_keyword in clean_name.lower().replace("_", ""):
+                    # 매칭 성공! fastf1이 100% 인식하도록 언더바를 공백으로 치환
+                    # 'British_Grand_Prix' -> 'British Grand Prix'
+                    matched_event_name = clean_name.replace("_", " ")
+                    break
+        
+        print(f"🔍 [Tire Analysis] LLM 입력: '{circuit}' -> 캐시 매칭: '{matched_event_name}'")
+        
+        # 3. 완벽하게 보정된 이름으로 세션 로드 (네트워크 낭비 제로)
+        session = fastf1.get_session(year, matched_event_name, 'R')
         session.load(laps=True, telemetry=False, weather=False, messages=False)
+        
+        # 4. 아웃랩, 인랩 등을 제외한 정상 주행 랩(Quicklaps)만 추출
         laps = session.laps.pick_track_status('1').pick_quicklaps()
         
         stats = []
@@ -170,6 +206,7 @@ def calculate_tire_degradation(year: int, circuit: str) -> pd.DataFrame:
                 "Degradation": "High" if slope > 0.1 else "Stable"
             })
         return pd.DataFrame(stats)
+    
     except Exception:
         return pd.DataFrame()
 
