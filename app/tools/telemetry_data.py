@@ -136,14 +136,29 @@ def _get_loaded_session(year: int, circuit: str, load_telemetry: bool = True):
                 matched_event_name = clean_name.replace("_", " ")
                 break
 
-    print(f"🔍 [Telemetry Data] LLM 입력: '{circuit}' -> 캐시 매칭: '{matched_event_name}'")
+    print(f"🔍 [Telemetry Data] UI 입력: '{circuit}' -> 캐시 매칭: '{matched_event_name}'")
     
     session = fastf1.get_session(year, matched_event_name, 'R')
-    # 텔레메트리 여부는 인자로 받아 처리 (Race Pace는 끄고, 나머지는 켬)
-    session.load(laps=True, telemetry=load_telemetry, weather=False, messages=False)
     
+    # [★ 핵심 디버깅 추가] 로드 과정을 try-except로 감싸고, 실패 시 경고 출력
+    try:
+        session.load(laps=True, telemetry=load_telemetry, weather=False, messages=False)
+        
+        # [★ 방어 로직] 텔레메트리를 요구했는데 데이터가 비어있다면 명시적 에러 발생
+        if load_telemetry:
+            # 첫 번째 랩의 텔레메트리를 살짝 찔러봐서 데이터가 진짜 있는지 확인합니다.
+            try:
+                _ = session.laps.pick_fastest().get_telemetry()
+                print("✅ 텔레메트리 데이터 로드 성공!")
+            except Exception as inner_e:
+                raise ValueError(f"해당 캐시에 텔레메트리 세부 데이터(속도, 위치 등)가 누락되어 있습니다. ({inner_e})")
+                
+    except Exception as e:
+        print(f"🚨 [Session Load Error] 세션 데이터를 불러오는데 실패했습니다: {e}")
+        # 실패하면 그대로 에러를 던져서 프론트엔드가 '데이터 없음' 처리하게 함
+        raise e
+        
     return session
-
 
 # -----------------------------------------------------------------------------
 # 1. [Plotly] 랩타임 비교 (Interactive)
