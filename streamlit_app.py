@@ -56,8 +56,8 @@ if os.path.exists(font_path):
 
 # --- [2. 프로젝트 경로 설정] ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(project_root)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 # --- [3. 모듈 임포트] ---
 try:
