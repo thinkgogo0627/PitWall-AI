@@ -11,14 +11,24 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # 전역 설정
+logging.getLogger('fastf1').setLevel(logging.ERROR)
 fastf1.plotting.setup_mpl(misc_mpl_mods=False)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
-CACHE_DIR = os.path.join(PROJECT_ROOT, 'data', 'cache')
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)  # data_pipeline의 부모 = 프로젝트 루트
 
-# 캐시 활성화
-if not os.path.exists(CACHE_DIR):
+# Streamlit Cloud 읽기 전용 대응: /tmp fallback
+_local_cache = os.path.join(PROJECT_ROOT, 'data', 'cache')
+try:
+    os.makedirs(_local_cache, exist_ok=True)
+    _test = os.path.join(_local_cache, '.write_test')
+    with open(_test, 'w') as f:
+        f.write('ok')
+    os.remove(_test)
+    CACHE_DIR = _local_cache
+except (PermissionError, OSError):
+    CACHE_DIR = '/tmp/fastf1_cache'
     os.makedirs(CACHE_DIR, exist_ok=True)
+
 try:
     fastf1.Cache.enable_cache(CACHE_DIR)
 except Exception:
@@ -172,10 +182,22 @@ def _get_global_tire_stats(session):
 
 def _resolve_driver_id(session, identifier):
     identifier = str(identifier).strip().upper()
-    if identifier in session.drivers: return identifier
-    for d in session.drivers:
-        info = session.get_driver(d)
-        if identifier in [info['Abbreviation'], info['LastName'].upper()]: return d
+    # 번호로 직접 매칭 (가장 빠름)
+    if identifier in session.drivers:
+        return identifier
+    # session.results에서 약어/성 매칭 (session.get_driver() 호출 없이)
+    try:
+        results = session.results
+        if 'Abbreviation' in results.columns:
+            match = results[results['Abbreviation'] == identifier]
+            if not match.empty:
+                return str(match.iloc[0]['DriverNumber'])
+        if 'LastName' in results.columns:
+            match = results[results['LastName'].str.upper() == identifier]
+            if not match.empty:
+                return str(match.iloc[0]['DriverNumber'])
+    except Exception:
+        pass
     return None
 
 def _check_pit_condition(stint_data):
