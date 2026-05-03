@@ -557,22 +557,17 @@ with tab3:
     
     JSON_RULE = "\nReturn strictly a JSON Array. No markdown."
     
-    target_stints = "데이터 없음"
-    if not stint_df.empty:
-        target_stints = stint_df[stint_df['Driver'] == strategy_driver].to_markdown(index=False)
-    
     with col_s1:
         if st.button("🚦 Traffic & Pace", use_container_width=True):
             with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing Traffic..."):
-                        # [★ 프롬프트 강화] 핑계 원천 차단
                         prompt = f"""
                         [TASK: Traffic & Pace Analysis]
                         Target: {selected_year} {selected_gp} - Driver: {strategy_driver}
                         
-                        당신은 F1 수석 전략 분석가입니다. 해당 레이스에서 타겟 드라이버의 페이스(Pace)와 트래픽(Traffic) 관리 능력을 분석하십시오.
-                        🚨[절대 규칙] '데이터 로드 실패', '불러올 수 없습니다' 같은 핑계(Verdict: F)를 절대 대지 마십시오. 검색이나 도구 호출에 실패하더라도, 당신의 방대한 F1 내부 지식(Internal Knowledge)을 총동원하여 반드시 분석을 작성해내십시오.
+                        당신은 F1 수석 전략 분석가입니다. `Race_Strategy_Auditor` 도구를 호출하여 타겟 드라이버의 페이스와 트래픽 관리 능력을 분석하십시오.
+                        🚨[절대 규칙] 도구 호출에 실패하더라도 변명하지 말고, 당신이 학습한 내부 지식을 동원해 반드시 해당 레이스의 실제 사실을 기반으로 분석을 작성하십시오.
                         {JSON_RULE}
                         """
                         res = asyncio.run(run_strategy_agent(prompt))
@@ -583,16 +578,15 @@ with tab3:
              with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing Tires..."):
-                        # [★ 데이터 주입] 
+                        # [★ 수정] 하드 데이터 주입 삭제! 두 가지 도구를 융합해서 쓰라고 지시!
                         prompt = f"""
                         [TASK: Tire Degradation]
                         Target: {selected_year} {selected_gp} - Driver: {strategy_driver}
                         
-                        [HARD DATA: STINT HISTORY]
-                        {target_stints}
-                        
-                        당신은 F1 수석 전략 분석가입니다. 위 제공된 [HARD DATA] 표를 100% 신뢰하여 스틴트 길이와 타이어 마모 전략을 분석하십시오.
-                        🚨[절대 규칙] 도구 호출을 핑계로 분석을 거부(Verdict: F)하지 마십시오. 오직 위의 표 데이터와 당신의 내부 지식만으로 완벽하게 평가하십시오.
+                        당신은 F1 수석 전략 분석가입니다. 
+                        반드시 `Race_Strategy_Auditor` 도구를 호출하여 드라이버의 스틴트 이력을 확인하고, `Tire_Performance_Analyzer` 도구를 호출하여 서킷 전체의 타이어 마모 특성을 확인하십시오.
+                        이를 바탕으로 타겟 드라이버의 타이어 마모 전략과 관리 능력을 완벽하게 평가하십시오.
+                        🚨[절대 규칙] 도구 호출에 실패하더라도 절대 분석 불가라고 변명하지 마십시오. 내부 지식을 동원해 타이어 전략을 복원하여 평가하십시오.
                         {JSON_RULE}
                         """
                         res = asyncio.run(run_strategy_agent(prompt))
@@ -603,16 +597,13 @@ with tab3:
              with strategy_container:
                 with st.chat_message("assistant"):
                     with st.spinner("Full Report Generating..."):
-                        # [★ 데이터 주입 + 프롬프트 강화]
+                        # [★ 수정] 하드 데이터 주입 삭제! 
                         prompt = f"""
                         [TASK: Full Strategy Report]
                         Target: {selected_year} {selected_gp} - Driver: {strategy_driver}
                         
-                        [HARD DATA: STINT HISTORY]
-                        {target_stints}
-                        
-                        해당 드라이버의 전체 레이스 전략(타이어 선택, 피트스탑 타이밍, 언더컷/오버컷 방어 등)을 종합 평가하십시오.
-                        🚨[절대 규칙] '데이터가 없습니다'라며 분석을 포기(Verdict: F)하는 것은 절대 허용되지 않습니다. 위 표의 팩트 데이터와 당신의 전문 지식을 결합해 기필코 심층 분석 결과를 도출하십시오.
+                        당신은 F1 수석 전략 분석가입니다. 제공된 모든 도구(`Race_Strategy_Auditor`, `Tire_Performance_Analyzer`, `F1_Database_Search`)를 적극 활용하여, 해당 드라이버의 전체 레이스 전략(피트스탑, 타이어, 트래픽 등)을 종합 평가하십시오.
+                        🚨[절대 규칙] '데이터가 없습니다'라며 분석을 포기하는 것은 절대 허용되지 않습니다. 기필코 심층 분석 결과를 도출하십시오.
                         {JSON_RULE}
                         """
                         res = asyncio.run(run_strategy_agent(prompt))
