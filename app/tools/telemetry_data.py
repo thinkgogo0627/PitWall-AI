@@ -12,24 +12,33 @@ import plotly.graph_objects as go
 
 # 경고 무시 및 F1 스타일 설정
 warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', module='fastf1')
+import logging
+logging.getLogger('fastf1').setLevel(logging.ERROR)
 fastf1.plotting.setup_mpl(misc_mpl_mods=False)
 
-
-# 현재 프로젝트 루트 기준: data/cache
+# Streamlit Cloud(/mount/src/)는 읽기 전용이므로 /tmp 사용
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-CACHE_DIR = os.path.join(PROJECT_ROOT, 'data', 'cache')
-PLOT_DIR = os.path.join(PROJECT_ROOT, 'data', 'plots')
+_local_cache = os.path.join(PROJECT_ROOT, 'data', 'cache')
+try:
+    os.makedirs(_local_cache, exist_ok=True)
+    # 쓰기 가능한지 테스트
+    _test = os.path.join(_local_cache, '.write_test')
+    with open(_test, 'w') as f:
+        f.write('ok')
+    os.remove(_test)
+    CACHE_DIR = _local_cache
+except (PermissionError, OSError):
+    CACHE_DIR = '/tmp/fastf1_cache'
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
-# 2. ★ 폴더부터 만든다! (이게 핵심)
-os.makedirs(CACHE_DIR, exist_ok=True)
+PLOT_DIR = '/tmp/fastf1_plots'
 os.makedirs(PLOT_DIR, exist_ok=True)
 
-# 3. 그 다음에 캐시를 켠다
 try:
     fastf1.Cache.enable_cache(CACHE_DIR)
-    print(f"✅ FastF1 Cache Enabled at: {CACHE_DIR}")
-except Exception as e:
-    print(f"⚠️ Cache Enable Failed: {e}")
+except Exception:
+    pass
 
 # -----------------------------------------------------------------------------
 # 드라이버 이름 정규화

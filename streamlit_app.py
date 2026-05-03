@@ -1,4 +1,7 @@
 import streamlit as st
+import numpy as np
+if not hasattr(np, 'NaN'):
+    np.NaN = np.nan  # NumPy 2.0 호환성 패치
 import matplotlib
 
 matplotlib.use('Agg')
@@ -12,6 +15,8 @@ import asyncio
 import pandas as pd
 import json
 import re
+import logging
+logging.getLogger('fastf1').setLevel(logging.ERROR)
 import fastf1
 import fastf1.plotting
 
