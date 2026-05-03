@@ -218,9 +218,18 @@ venv/
 __pycache__/
 *.pyc
 
-# 3. 로컬 데이터 폴더 (혹시 생길 경우를 대비)
-data/
+# 3. 로컬 데이터 폴더
+data/*
 !data/f1_data.db
+!data/cache/
+# *.ff1pkl 전역 ignore 해제 (캐시 파일 허용)
+!data/cache/**
+!data/cache/**/*.ff1pkl
+# 단, 무거운 텔레메트리·HTTP캐시는 제외
+data/cache/fastf1_http_cache.sqlite
+data/cache/**/car_data*.ff1pkl
+data/cache/**/position_data*.ff1pkl
+data/cache/**/weather_data*.ff1pkl
 mongo_data/
 .idea/
 .vscode/

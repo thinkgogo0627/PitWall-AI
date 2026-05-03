@@ -16,7 +16,10 @@ fastf1.plotting.setup_mpl(misc_mpl_mods=False)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)  # data_pipeline의 부모 = 프로젝트 루트
 
-# Streamlit Cloud 읽기 전용 대응: /tmp fallback
+# FastF1 캐시 설정
+# enable_cache()는 SQLite HTTP 캐시를 생성해야 해서 쓰기 권한 필요
+# Streamlit Cloud에서는 data/cache/가 읽기 전용이므로 /tmp에 writable 캐시 생성 후
+# 커밋된 캐시(pickle 파일)를 symlink로 연결
 _local_cache = os.path.join(PROJECT_ROOT, 'data', 'cache')
 try:
     os.makedirs(_local_cache, exist_ok=True)
@@ -26,8 +29,18 @@ try:
     os.remove(_test)
     CACHE_DIR = _local_cache
 except (PermissionError, OSError):
+    # 읽기 전용 → /tmp 사용 + 커밋된 캐시 symlink
     CACHE_DIR = '/tmp/fastf1_cache'
     os.makedirs(CACHE_DIR, exist_ok=True)
+    if os.path.exists(_local_cache):
+        for _item in os.listdir(_local_cache):
+            _src = os.path.join(_local_cache, _item)
+            _dst = os.path.join(CACHE_DIR, _item)
+            if os.path.isdir(_src) and not os.path.exists(_dst):
+                try:
+                    os.symlink(_src, _dst)
+                except OSError:
+                    pass
 
 try:
     fastf1.Cache.enable_cache(CACHE_DIR)

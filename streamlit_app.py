@@ -20,6 +20,78 @@ logging.getLogger('fastf1').setLevel(logging.ERROR)
 import fastf1
 import fastf1.plotting
 
+# FastF1 캐시 설정 (앱 진입점에서 먼저 초기화)
+_project_root = os.path.dirname(os.path.abspath(__file__))
+_local_cache = os.path.join(_project_root, 'data', 'cache')
+try:
+    os.makedirs(_local_cache, exist_ok=True)
+    _wt = os.path.join(_local_cache, '.write_test')
+    with open(_wt, 'w') as f:
+        f.write('ok')
+    os.remove(_wt)
+    fastf1.Cache.enable_cache(_local_cache)
+except (PermissionError, OSError):
+    _tmp_cache = '/tmp/fastf1_cache'
+    os.makedirs(_tmp_cache, exist_ok=True)
+    if os.path.exists(_local_cache):
+        for _item in os.listdir(_local_cache):
+            _src = os.path.join(_local_cache, _item)
+            _dst = os.path.join(_tmp_cache, _item)
+            if os.path.isdir(_src) and not os.path.exists(_dst):
+                try:
+                    os.symlink(_src, _dst)
+                except OSError:
+                    pass
+    fastf1.Cache.enable_cache(_tmp_cache)
+
+# FastF1 캐시 설정 (앱 진입점에서 먼저 초기화)
+_project_root = os.path.dirname(os.path.abspath(__file__))
+_local_cache = os.path.join(_project_root, 'data', 'cache')
+try:
+    os.makedirs(_local_cache, exist_ok=True)
+    _wt = os.path.join(_local_cache, '.write_test')
+    with open(_wt, 'w') as f:
+        f.write('ok')
+    os.remove(_wt)
+    fastf1.Cache.enable_cache(_local_cache)
+except (PermissionError, OSError):
+    _tmp_cache = '/tmp/fastf1_cache'
+    os.makedirs(_tmp_cache, exist_ok=True)
+    if os.path.exists(_local_cache):
+        for _item in os.listdir(_local_cache):
+            _src = os.path.join(_local_cache, _item)
+            _dst = os.path.join(_tmp_cache, _item)
+            if os.path.isdir(_src) and not os.path.exists(_dst):
+                try:
+                    os.symlink(_src, _dst)
+                except OSError:
+                    pass
+    fastf1.Cache.enable_cache(_tmp_cache)
+
+# FastF1 캐시 설정 (앱 진입점에서 먼저 초기화)
+_project_root = os.path.dirname(os.path.abspath(__file__))
+_local_cache = os.path.join(_project_root, 'data', 'cache')
+try:
+    os.makedirs(_local_cache, exist_ok=True)
+    _wt = os.path.join(_local_cache, '.write_test')
+    with open(_wt, 'w') as f:
+        f.write('ok')
+    os.remove(_wt)
+    fastf1.Cache.enable_cache(_local_cache)
+except (PermissionError, OSError):
+    _tmp_cache = '/tmp/fastf1_cache'
+    os.makedirs(_tmp_cache, exist_ok=True)
+    if os.path.exists(_local_cache):
+        for _item in os.listdir(_local_cache):
+            _src = os.path.join(_local_cache, _item)
+            _dst = os.path.join(_tmp_cache, _item)
+            if os.path.isdir(_src) and not os.path.exists(_dst):
+                try:
+                    os.symlink(_src, _dst)
+                except OSError:
+                    pass
+    fastf1.Cache.enable_cache(_tmp_cache)
+
 ################################################################
 from llama_index.core import Settings
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding

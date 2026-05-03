@@ -17,12 +17,11 @@ import logging
 logging.getLogger('fastf1').setLevel(logging.ERROR)
 fastf1.plotting.setup_mpl(misc_mpl_mods=False)
 
-# Streamlit Cloud(/mount/src/)는 읽기 전용이므로 /tmp 사용
+# FastF1 캐시 설정 (enable_cache는 SQLite 생성 필요 → 쓰기 권한 필요)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 _local_cache = os.path.join(PROJECT_ROOT, 'data', 'cache')
 try:
     os.makedirs(_local_cache, exist_ok=True)
-    # 쓰기 가능한지 테스트
     _test = os.path.join(_local_cache, '.write_test')
     with open(_test, 'w') as f:
         f.write('ok')
@@ -31,6 +30,15 @@ try:
 except (PermissionError, OSError):
     CACHE_DIR = '/tmp/fastf1_cache'
     os.makedirs(CACHE_DIR, exist_ok=True)
+    if os.path.exists(_local_cache):
+        for _item in os.listdir(_local_cache):
+            _src = os.path.join(_local_cache, _item)
+            _dst = os.path.join(CACHE_DIR, _item)
+            if os.path.isdir(_src) and not os.path.exists(_dst):
+                try:
+                    os.symlink(_src, _dst)
+                except OSError:
+                    pass
 
 PLOT_DIR = '/tmp/fastf1_plots'
 os.makedirs(PLOT_DIR, exist_ok=True)
