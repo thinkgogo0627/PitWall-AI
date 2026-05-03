@@ -327,10 +327,25 @@ def display_strategy_result(response_object):
         elif isinstance(response_object, str): final_text = response_object
         else: final_text = str(response_object)
 
-        # 2. JSON 파싱
+        # 2. 불필요한 꼬리표(assistant: 등) 강제 제거
+        import re
+        final_text = re.sub(r"^(assistant|AI|system):\s*", "", final_text, flags=re.IGNORECASE).strip()
+
+        # 3. JSON 배열 블록만 정확히 추출
         match = re.search(r"\[.*\]", final_text, re.DOTALL)
         if match:
-            data = json.loads(match.group(0))
+            json_str = match.group(0)
+            
+            try:
+                import json
+                # [★ 핵심 1] strict=False를 주면 문자열 내부에 숨겨진 줄바꿈(\n)이 있어도 너그럽게 파싱해줍니다!
+                data = json.loads(json_str, strict=False)
+            except json.JSONDecodeError:
+                # [★ 핵심 2] LLM이 작은따옴표(')를 썼거나 구조가 살짝 깨졌을 때 구원해주는 파이썬 내장 파서
+                import ast
+                data = ast.literal_eval(json_str)
+            
+            import pandas as pd
             df = pd.DataFrame(data)
             
             # 헤더
@@ -362,8 +377,10 @@ def display_strategy_result(response_object):
                 st.success(f"🏁 **종합 평가: {v}** | {i}") if "A" in v or "S" in v else st.info(f"🏁 **종합 평가: {v}** | {i}")
         else:
             raise ValueError("No JSON found")
+            
     except Exception as e:
-        st.warning("⚠️ Raw Output (JSON Parsing Failed):")
+        # 그래도 파싱에 실패하면 원본을 보여줌
+        st.warning(f"⚠️ Raw Output (JSON Parsing Failed): {e}")
         st.markdown(final_text)
 
 # --- [7. 사이드바] ---
