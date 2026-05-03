@@ -249,9 +249,47 @@ TELEMETRY_TIPS = {
 
 @st.cache_data(ttl=3600)
 def get_all_drivers_stint_data(year, gp):
-    """전체 드라이버의 스틴트 정보를 가져옵니다."""
+    """전체 드라이버의 스틴트 정보를 가져옵니다 (로컬 캐시 스캐너 적용판)."""
+    import os
+    import fastf1
+    import pandas as pd
+
     try:
-        session = fastf1.get_session(year, gp, 'R')
+        # 1. 절대 경로 캐시 디렉토리 연결
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        CACHE_DIR = os.path.abspath(os.path.join(BASE_DIR, '../data/cache')) # 경로 레벨 확인 필요
+        fastf1.Cache.enable_cache(CACHE_DIR)
+
+        # 2. 로컬 디렉토리 스캔을 통한 이름 강제 보정
+        year_dir = os.path.join(CACHE_DIR, str(year))
+        matched_event_name = gp
+
+        # [방어막] 중국(China), 미국 등 자주 틀리는 이름 매핑
+        TRACK_ALIASES = {
+            "silverstone": "british", "monza": "italian", "spa": "belgian",
+            "interlagos": "sao paulo", "zandvoort": "dutch", "suzuka": "japanese",
+            "saopaulo": "s o paulo", "cota": "united states", "austin": "united states",
+            "china": "chinese", "shanghai": "chinese"
+        }
+
+        search_keyword = gp.lower().replace(" ", "").replace("_", "")
+        for alias, real_name in TRACK_ALIASES.items():
+            if alias in search_keyword:
+                search_keyword = real_name.replace(" ", "")
+                break
+
+        if os.path.exists(year_dir):
+            for folder_name in os.listdir(year_dir):
+                clean_name = folder_name.split('_', 1)[-1] if '_' in folder_name else folder_name
+                compare_name = clean_name.lower().replace("_", "").replace(" ", "")
+                if search_keyword in compare_name:
+                    matched_event_name = clean_name.replace("_", " ")
+                    break
+
+        print(f"🔍 [UI Stint Load] 입력: '{gp}' -> 캐시 매칭: '{matched_event_name}'")
+
+        # 3. 보정된 이름으로 세션 로드
+        session = fastf1.get_session(year, matched_event_name, 'R')
         session.load(laps=True, telemetry=False, weather=False, messages=False)
         
         stints_list = []
@@ -279,7 +317,9 @@ def get_all_drivers_stint_data(year, gp):
                     "Status": "NEW" if is_new else "USED"
                 })
         return pd.DataFrame(stints_list), drivers
+
     except Exception as e:
+        print(f"🚨 UI 스틴트 데이터 로드 실패: {e}")
         return pd.DataFrame(), []
 
 def plot_tire_strategy_chart(df, sorted_drivers):
@@ -389,7 +429,7 @@ def display_strategy_result(response_object):
         st.warning(f"⚠️ Raw Output (JSON Parsing Failed): {e}")
         st.markdown(final_text if 'final_text' in locals() else str(response_object))
 
-        
+
 # --- [7. 사이드바] ---
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/3/33/F1.svg", width=80)
