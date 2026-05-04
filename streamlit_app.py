@@ -18,7 +18,7 @@ import re
 import logging
 logging.getLogger('fastf1').setLevel(logging.ERROR)
 import fastf1
-import fastf1.plotting
+
 
 # FastF1 캐시 설정 (앱 진입점에서 먼저 초기화)
 _project_root = os.path.dirname(os.path.abspath(__file__))
@@ -447,7 +447,7 @@ with st.sidebar:
 
 # --- [8. 메인 탭] ---
 st.title(f"🏎️ PitWall-AI : {selected_year} {selected_gp}")
-tab1, tab2, tab3 = st.tabs(["💬 Briefing", "📈 Telemetry Analytics" , "🧠 Strategy Center"])
+tab1, tab2= st.tabs(["💬 Briefing", "🧠 Strategy Center"])
 
 # TAB 1: Briefing
 with tab1:
@@ -495,59 +495,10 @@ with tab1:
                 st.markdown(response)
                 st.session_state.msg_briefing.append({"role": "assistant", "content": response})
 
-# TAB 2: Telemetry
+
+
+# TAB 2: Strategy
 with tab2:
-    st.markdown("### 📈 Telemetry Analytics Studio")
-    row_sel1, row_sel2 = st.columns(2)
-    with row_sel1: telemetry_d1 = st.selectbox("Driver A (Blue)", DRIVER_LIST, index=DRIVER_LIST.index("VER"), key="t_d1")
-    with row_sel2: telemetry_d2 = st.selectbox("Driver B (Orange)", DRIVER_LIST, index=DRIVER_LIST.index("NOR"), key="t_d2")
-    
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    if "telemetry_fig" not in st.session_state:
-        st.session_state.telemetry_fig = None
-        st.session_state.telemetry_type = None
-
-    with col_btn1:
-        if st.button("📉 Race Pace", use_container_width=True):
-            with st.spinner("Race Pace 데이터 로딩 중..."):
-                fig = get_race_pace_data(selected_year, selected_gp, telemetry_d1, telemetry_d2)
-            if fig:
-                st.session_state.telemetry_fig = fig
-                st.session_state.telemetry_type = "Race Pace"
-            else:
-                st.error("Race Pace 데이터를 불러올 수 없습니다. 해당 세션의 데이터가 존재하는지 확인하세요.")
-
-    with col_btn2:
-        if st.button("🗺️ Track Dominance", use_container_width=True):
-            with st.spinner("Track Dominance 맵 생성 중..."):
-                path = generate_track_dominance_plot(selected_year, selected_gp, telemetry_d1, telemetry_d2)
-            if path and "GRAPH_GENERATED" in path:
-                st.session_state.telemetry_fig = path.split(": ")[1].strip()
-                st.session_state.telemetry_type = "Track Dominance"
-            else:
-                st.error(f"Track Dominance 맵 생성 실패: {path if path else '데이터 없음'}")
-
-    with col_btn3:
-        if st.button("📈 Speed Trace", use_container_width=True):
-            with st.spinner("Speed Trace 데이터 로딩 중..."):
-                fig = get_speed_trace_data(selected_year, selected_gp, telemetry_d1, telemetry_d2)
-            if fig:
-                st.session_state.telemetry_fig = fig
-                st.session_state.telemetry_type = "Speed Trace"
-            else:
-                st.error("Speed Trace 데이터를 불러올 수 없습니다. 해당 세션의 데이터가 존재하는지 확인하세요.")
-
-    st.divider()
-    if st.session_state.telemetry_fig:
-        if st.session_state.telemetry_type == "Track Dominance":
-            st.image(st.session_state.telemetry_fig, use_container_width=True)
-        else:
-            st.plotly_chart(st.session_state.telemetry_fig, use_container_width=True)
-        st.info(f"💡 {st.session_state.telemetry_type} Analysis Tip")
-        st.markdown(TELEMETRY_TIPS.get(st.session_state.telemetry_type, ""))
-
-# TAB 3: Strategy
-with tab3:
     st.markdown("### 🧠 Race Strategy Analysis")
     
     # 1. Stint History Chart
