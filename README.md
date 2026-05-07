@@ -1,273 +1,163 @@
-# 🏎️ PitWall-AI
+# PitWall-AI
 
-> **"Your Personal Race Engineer Powered by LLM"**
-> FastF1 텔레메트리, 멀티 에이전트 AI, 벡터 DB 기반 RAG를 결합한 Formula 1 종합 분석 시스템
+FastF1 레이스 데이터, Streamlit UI, LLM 에이전트, Qdrant 기반 RAG를 결합한 Formula 1 레이스 분석 도구입니다.
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)
-![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-FF4B4B?logo=streamlit)
-![LlamaIndex](https://img.shields.io/badge/Framework-LlamaIndex-black)
-![Gemini](https://img.shields.io/badge/LLM-Google%20Gemini-4285F4?logo=google)
-![Qdrant](https://img.shields.io/badge/VectorDB-Qdrant-EF2C6B)
-![Airflow](https://img.shields.io/badge/Orchestration-Apache%20Airflow-017CEE?logo=apache-airflow)
+주요 목적은 사용자가 특정 시즌/그랑프리/드라이버를 선택하면 레이스 결과, 스틴트 전략, 타이어 마모, 텔레메트리 비교, 뉴스/규정 근거를 한 화면에서 확인할 수 있게 하는 것입니다.
 
----
-
-## 📋 목차
-
-1. [프로젝트 소개](#-프로젝트-소개)
-2. [아키텍처](#-아키텍처)
-3. [주요 기능](#-주요-기능)
-4. [기술 스택](#-기술-스택)
-5. [프로젝트 구조](#-프로젝트-구조)
-6. [시작하기](#-시작하기)
-7. [데이터 파이프라인](#-데이터-파이프라인)
-
----
-
-## 🏁 프로젝트 소개
-
-PitWall-AI는 F1 팬과 분석가를 위한 **AI 레이스 엔지니어** 시스템입니다.
-
-- **레이스 브리핑:** 경기 결과, 드라이버별 분석, 주요 사건 정리
-- **전략 분석:** 스틴트별 타이어 전략, 페이스 비교, 언더컷/오버컷 시뮬레이션
-- **텔레메트리 시각화:** FastF1 기반 드라이버 랩타임, 속도 트레이스, 트랙 지배도 분석
-- **FIA 규정 검색:** 수백 페이지 규정집(PDF)을 RAG로 검색하여 정확한 조항 근거 제시
-- **F1 뉴스 컨텍스트:** Autosport, Formula1.com 크롤링 기반 최신 정보 검색
-
----
-
-## 🏗️ 아키텍처
+## 현재 동작 흐름
 
 ```
-                        ┌─────────────────────┐
-                        │   Streamlit Frontend │
-                        │  (Briefing / Tele /  │
-                        │    Strategy Tabs)    │
-                        └──────────┬──────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │       LlamaIndex ReActAgent  │
-                    │  (Briefing / Strategy /      │
-                    │   Simulation / Analytic)     │
-                    └──────┬──────────────┬────────┘
-                           │              │
-            ┌──────────────▼──┐   ┌───────▼──────────────┐
-            │   Hard Data     │   │     Soft Data         │
-            │  (Text2SQL)     │   │  (RAG / Qdrant)       │
-            │  SQLite DB      │   │  Google Gemini Embed  │
-            └─────────────────┘   └───────────────────────┘
-                           │              │
-            ┌──────────────▼──┐   ┌───────▼──────────────┐
-            │  FastF1 API     │   │   MongoDB Atlas       │
-            │  (Telemetry)    │   │  (Document Storage)   │
-            └─────────────────┘   └───────────────────────┘
-                                           │
-                              ┌────────────▼───────────────┐
-                              │  Airflow DAG (14일 주기)    │
-                              │  Selenium Crawler           │
-                              │  (Autosport + Formula1.com) │
-                              └────────────────────────────┘
+Streamlit App
+  |
+  |-- Briefing
+  |     |-- SQLite race_results에서 공식 결과 조회
+  |     |-- 조회된 표를 LLM 프롬프트에 직접 주입
+  |     |-- 필요 시 Qdrant RAG로 뉴스/인터뷰/규정 컨텍스트 보강
+  |
+  |-- Strategy Center
+  |     |-- FastF1 캐시/세션에서 랩, 스틴트, 타이어 데이터 로드
+  |     |-- 트래픽, 클린 페이스, 스틴트 길이, 타이어 degradation 분석
+  |
+  |-- Telemetry / Visualization
+  |     |-- FastF1 기반 랩타임 비교
+  |     |-- 스피드 트레이스
+  |     |-- 트랙 구간별 dominance plot
+  |
+  |-- Tactical Simulation
+        |-- 피트스탑, 언더컷/오버컷 시나리오 분석
 ```
 
----
+## 주요 기능
 
-## ✨ 주요 기능
+### Race Briefing
 
-### 1. 레이스 브리핑 에이전트
-- 경기 전체 요약 또는 드라이버별 심층 분석 모드 전환
-- SQLite 레이스 결과 DB + 뉴스/인터뷰 컨텍스트 결합
-- FIA 규정 조항 자동 참조 (패널티, 사건 분석 시)
+- 선택한 연도와 그랑프리의 공식 레이스 결과를 SQLite DB에서 조회합니다.
+- 전체 레이스 요약과 드라이버별 Focus Report를 생성합니다.
+- 드라이버명/순위/팀명 같은 핵심 팩트는 조회된 결과표를 기준으로 사용합니다.
+- 뉴스, 인터뷰, FIA 규정 근거가 필요할 때 RAG 검색을 보조로 사용합니다.
 
-### 2. 전략 분석 에이전트
-- Text2SQL 기반 레이스 데이터 쿼리 (랩타임, 날씨, 피트스탑)
-- 스틴트 평가: Long Run / Normal / Short Stint 자동 분류
-- 타이어 degradation 분석 + 트래픽 감지 (1.0초 갭 임계값)
+### Strategy Center
 
-### 3. 전술 시뮬레이션 에이전트
-- 언더컷/오버컷 시나리오 실시간 시뮬레이션
-- 피트 로스 계산 및 최적 피트 윈도우 추천
-- FastF1 실제 텔레메트리 기반 타이어 모델링
+- FastF1 캐시 데이터를 이용해 레이스 스틴트 정보를 불러옵니다.
+- 드라이버별 타이어 컴파운드, 스틴트 길이, 트래픽 비율, 클린 페이스를 분석합니다.
+- 서킷 전체의 타이어 평균 수명과 degradation 경향을 계산합니다.
+- 결과는 Streamlit UI에서 JSON 기반 테이블 형태로 표시됩니다.
 
-### 4. 텔레메트리 분석
-- 드라이버 랩타임 비교 차트
-- 트랙 구간별 지배도 맵 (Track Dominance)
-- 속도/스로틀/브레이크 트레이스 오버레이
+### Telemetry Analysis
 
-### 5. RAG 검색 (Soft Data)
-- Qdrant 벡터 DB 하이브리드 검색 (Dense + 메타데이터 필터링)
-- Google Gemini Embedding (`models/gemini-embedding-001`, 3072차원)
-- Autosport / Formula1.com 크롤링 아티클 색인
+- 두 드라이버의 Race Pace를 Plotly 차트로 비교합니다.
+- Fastest Lap 기준 Speed Trace를 표시합니다.
+- 트랙 좌표와 속도 차이를 이용해 어느 드라이버가 어느 구간에서 우세했는지 시각화합니다.
 
-### 6. FIA 규정 검색
-- FIA 공식 PDF(스포팅/테크니컬/파이낸셜 규정) 파싱 및 벡터화
-- 규정 조항 정확 근거 제시
+### RAG Context
 
----
+- Autosport, Formula1.com, FIA 문서 등 비정형 텍스트를 MongoDB에 저장합니다.
+- Gemini Embedding으로 벡터화한 뒤 Qdrant에 업서트합니다.
+- 브리핑/규정 확인/사건 원인 설명에 필요한 보조 컨텍스트로 사용합니다.
 
-## 🛠️ 기술 스택
+### Data Pipeline
 
-| 카테고리 | 기술 |
-|----------|------|
-| **LLM** | Google Gemini 2.5 Pro / 2.5 Flash / 2.0 Flash |
-| **Embedding** | Google Gemini Embedding (`gemini-embedding-001`) |
-| **Agent Framework** | LlamaIndex (ReActAgent, FunctionTool) |
-| **Vector DB** | Qdrant Cloud (Hybrid Search) |
-| **Relational DB** | SQLite (`f1_data.db`) |
-| **Document DB** | MongoDB Atlas (Beanie ODM) |
-| **F1 Data** | FastF1 (공식 텔레메트리 API) |
-| **Frontend** | Streamlit |
-| **Orchestration** | Apache Airflow 2.9.1 |
-| **Web Scraping** | Selenium + BeautifulSoup4 + Trafilatura |
-| **Containerization** | Docker & Docker Compose |
-| **Visualization** | Plotly, Matplotlib, FastF1 Plotting |
-| **Async** | asyncio, Motor (MongoDB async driver) |
-| **Data Validation** | Pydantic, Beanie |
+- Airflow DAG가 크롤러와 RAG 인덱서를 실행합니다.
+- Selenium 기반 크롤러가 기사 목록과 본문을 수집합니다.
+- MongoDB 저장 후 Qdrant 컬렉션에 벡터 인덱싱합니다.
 
----
+## 기술 스택
 
-## 📁 프로젝트 구조
+| 영역 | 기술 |
+|---|---|
+| App UI | Streamlit |
+| F1 데이터 | FastF1, SQLite |
+| LLM | Google Gemini |
+| Agent | LlamaIndex ReActAgent, FunctionTool |
+| Embedding | Google Gemini Embedding |
+| Vector DB | Qdrant |
+| Document DB | MongoDB / Motor / Beanie |
+| Pipeline | Airflow, Selenium |
+| Visualization | Plotly, Matplotlib |
+| Runtime | Python 3.11, Docker Compose |
+
+## 프로젝트 구조
 
 ```
 PitWall-AI/
 ├── app/
 │   ├── agents/
-│   │   ├── briefing_agent.py       # 레이스 브리핑 에이전트
-│   │   ├── strategy_agent.py       # 전략 분석 에이전트
-│   │   ├── tactic_simulation_agent.py  # 전술 시뮬레이션 에이전트
-│   │   └── analytic_agent.py       # 분석 에이전트
+│   │   ├── briefing_agent.py
+│   │   ├── strategy_agent.py
+│   │   └── tactic_simulation_agent.py
 │   ├── tools/
-│   │   ├── hard_data.py            # Text2SQL (SQLite 레이스 DB)
-│   │   ├── soft_data.py            # RAG 검색 (Qdrant)
-│   │   ├── deterministic_data.py   # 레이스 결과/순위 조회
-│   │   └── telemetry_data.py       # FastF1 텔레메트리 시각화
-│   └── regulation_tool.py          # FIA 규정 검색 툴
+│   │   ├── deterministic_data.py
+│   │   ├── soft_data.py
+│   │   └── telemetry_data.py
+│   └── regulation_tool.py
 │
 ├── data_pipeline/
 │   ├── crawlers/
-│   │   ├── base.py                 # 크롤러 베이스 클래스
-│   │   ├── f1_news.py              # Autosport 뉴스 크롤러
-│   │   ├── f1_tactic.py            # Formula1.com 크롤러
-│   │   └── FIA_reg.py              # FIA 규정 PDF 크롤러
-│   ├── pipelines/
-│   │   ├── init_historical.py      # 과거 데이터 초기화
-│   │   ├── init_static.py          # 정적 데이터 초기화
-│   │   └── update_db.py            # DB 업데이트
-│   ├── analytics.py                # 레이스 전략 분석 엔진
-│   ├── rag_indexer.py              # Qdrant 벡터 인덱싱
-│   ├── retriever.py                # Qdrant 검색 엔진
-│   └── update_db.py                # DB 업데이트 유틸
+│   ├── analytics.py
+│   ├── rag_indexer.py
+│   └── retriever.py
 │
 ├── dags/
-│   ├── pitwall_pipeline.py         # 메인 데이터 파이프라인 DAG
-│   └── get_text2sql_dataset.py     # Text2SQL 데이터셋 생성 DAG
+│   └── pitwall_pipeline.py
 │
 ├── domain/
-│   └── documents.py                # Beanie ODM 스키마
+│   └── documents.py
 │
 ├── data/
-│   ├── f1_data.db                  # SQLite 레이스 데이터
-│   └── cache/                      # FastF1 캐시
+│   ├── f1_data.db
+│   └── cache/
 │
-├── streamlit_app.py                # Streamlit 메인 앱
-├── docker-compose.yaml             # 멀티 컨테이너 구성
-├── Dockerfile                      # Streamlit 컨테이너
-├── Dockerfile.airflow              # Airflow 컨테이너
-├── requirements.txt                # Python 의존성
-└── requirements_airflow.txt        # Airflow 의존성
+├── streamlit_app.py
+├── docker-compose.yaml
+├── Dockerfile
+├── requirements.txt
+└── requirements_airflow.txt
 ```
 
----
+## 환경 변수
 
-## 🚀 시작하기
-
-### Prerequisites
-
-- Python 3.11+
-- Docker & Docker Compose
-- API Keys: Google Gemini, Qdrant Cloud, MongoDB Atlas
-
-### 환경 변수 설정
-
-`.env` 파일을 생성하고 아래 값을 입력합니다:
+`.env` 파일에 아래 값을 설정합니다.
 
 ```env
 GOOGLE_API_KEY=your_google_gemini_api_key
-QDRANT_URL=your_qdrant_cloud_url
+QDRANT_URL=your_qdrant_url
 QDRANT_API_KEY=your_qdrant_api_key
-MONGO_URI=your_mongodb_atlas_connection_string
-AIRFLOW_FERNET_KEY=your_fernet_key
+MONGO_URI=your_mongodb_uri
+AIRFLOW_FERNET_KEY=your_airflow_fernet_key
 AIRFLOW_UID=50000
 ```
 
-### 로컬 실행 (Streamlit만)
+## 실행
+
+### Streamlit 로컬 실행
 
 ```bash
-# 1. 의존성 설치
 pip install -r requirements.txt
-
-# 2. Streamlit 앱 실행
 streamlit run streamlit_app.py
-
-# 3. 데이터 상태 확인
-python data_test.py
 ```
 
-### Docker 전체 스택 실행 (권장)
+### 전체 스택 실행
 
 ```bash
-# 전체 서비스 시작
 docker-compose up -d
-
-# Airflow 초기화 (최초 1회)
 docker-compose run airflow-init
 ```
 
 | 서비스 | URL |
-|--------|-----|
+|---|---|
 | Streamlit App | http://localhost:8501 |
 | Airflow UI | http://localhost:8080 |
 | Mongo Express | http://localhost:8081 |
-| Qdrant Dashboard | http://localhost:6333 |
+| Qdrant | http://localhost:6333 |
 
----
-
-## 🔄 데이터 파이프라인
-
-Airflow DAG가 **14일 주기**로 자동 실행됩니다.
-
-```
-[Autosport 크롤러] ──┐
-                     ├──→ [MongoDB Atlas] ──→ [RAG 인덱싱] ──→ [Qdrant]
-[Formula1.com 크롤러]┘
-```
-
-1. **크롤링 (병렬):** Selenium Chrome으로 Autosport, Formula1.com 최신 기사 수집
-2. **문서 저장:** MongoDB Atlas에 `F1NewsDocument` 스키마로 저장
-3. **벡터 인덱싱:** Google Gemini API로 임베딩 후 Qdrant 업서트 (멱등성 보장)
-
-### 수동 파이프라인 실행
+## 데이터 상태 확인
 
 ```bash
-# Airflow DAG 직접 트리거
-airflow dags trigger pitwall_daily_pipeline
-
-# 또는 Python으로 직접 실행
-python data_pipeline/rag_indexer.py
+python data_test.py
 ```
 
----
+이 스크립트는 MongoDB, Qdrant, SQLite 적재 상태를 확인합니다.
 
-## 📊 에이전트 도구 구성
+## 라이선스
 
-| 에이전트 | 사용 도구 |
-|---------|----------|
-| **Briefing** | 레이스 결과 DB, FIA 규정 검색, 뉴스/인터뷰 RAG, 이벤트 타임라인, 웹 검색 |
-| **Strategy** | Text2SQL (레이스 DB), 스틴트 분석, 타이어 degradation 분석 |
-| **Simulation** | FastF1 텔레메트리, 피트 로스 계산, 언더컷/오버컷 시뮬레이션 |
-| **Analytic** | 레이스 전반 통계 분석 |
-
----
-
-## 📝 라이선스
-
-This project is for personal/educational use. F1 data sourced via [FastF1](https://github.com/theOehrly/Fast-F1) (MIT License).
+Personal/educational project. F1 data is sourced through FastF1.
