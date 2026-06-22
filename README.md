@@ -85,8 +85,6 @@ crawl_f1_official  ──▶  crawl_autosport  ──▶  rag_indexing
 - `update_db.py` / `init_historical.py`가 FastF1 세션을 SQLite의 `race_results` · `lap_times` · `weather_data` 테이블에 적재
 - 캐시는 `data/cache`를 사용하며, 읽기 전용 환경(예: Streamlit Cloud)에서는 `/tmp`로 폴백
 
-### Text2SQL
-- LlamaIndex `NLSQLTableQueryEngine` + few-shot 프롬프트로 자연어 질문을 SQLite 쿼리로 변환 (Strategy Agent의 기록 조회 도구로 사용)
 
 ---
 
@@ -126,7 +124,7 @@ PitWall-AI/
 
 ---
 
-## 🔑 환경 변수
+##  환경 변수
 
 `.env` 파일에 아래 값을 설정합니다.
 
