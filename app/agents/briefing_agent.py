@@ -16,6 +16,7 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import ReActAgent
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from google.genai.errors import ServerError
+from duckduckgo_search import DDGS
 
 warnings.filterwarnings("ignore", module="pydantic")
 warnings.filterwarnings("ignore", message=".*model_computed_fields.*")
@@ -27,12 +28,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # --- [도구 Import] ---
 from app.tools.deterministic_data import get_race_standings
-from app.tools.soft_data import (
-    search_f1_context,
-    get_driver_interview,
-    search_technical_analysis,
-    get_event_timeline,
-)
+from app.tools.soft_data import search_f1_context
 from app.regulation_tool import regulation_tool
 
 # --- [★ 드라이버 약어 → 풀네임 변환 테이블] ---
@@ -134,11 +130,32 @@ tool_timeline = FunctionTool.from_defaults(
 )
 
 tool_general_news = FunctionTool.from_defaults(
-    fn=search_f1_context,
+    fn=search_f1_news_web,
     name="Search_General_News",
     description="위의 특화 도구들로 찾을 수 없는 일반적인 가십이나 이슈, 혹은 광범위한 정보를 찾을 때 보조적으로 사용하세요."
 )
 
+def search_web_realtime(query: str) -> str:
+    try:
+        with DDGS(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}, timeout=10) as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+
+        if not results:
+            return "[WEB_SEARCH_NO_RESULT] 검색 결과를 찾을 수 없습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
+
+        summary = ""
+        for res in results:
+            summary += f"- {res['title']}: {res['body']}\n"
+        return summary
+
+    except Exception as e:
+        return "[WEB_SEARCH_FAILED] 웹 검색 도구에 오류가 발생했습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
+
+tool_web_search = FunctionTool.from_defaults(
+    fn=search_web_realtime,
+    name="Search_Web_Realtime",
+    description="DB에 없는 사건/사고, 페널티 사유, 실격(DSQ) 이유, 드라이버 인터뷰 등을 웹에서 검색합니다."
+)
 
 
 # --- [3. 에이전트 조립] ---
@@ -147,9 +164,8 @@ def build_briefing_agent():
     """
     경기 후 브리핑 및 요약 전문 에이전트
     """
-    tools = [race_result_tool, regulation_tool, tool_timeline, tool_interview,
-             tool_tech, tool_general_news]
-
+    tools = [race_result_tool, regulation_tool]
+    
     system_prompt = """
     당신은 F1 전문 저널리스트이자 수석 퍼포먼스 분석가입니다.
 
@@ -166,7 +182,7 @@ def build_briefing_agent():
     3. 확인되지 않은 사실을 추측하거나 그럴듯하게 꾸며내는 행위는 엄격히 금지됩니다.
 
     [TOOL USAGE RULES]
-    1. 순위표에 'Retired', 'Did not start', 'DSQ'가 있거나 순위 변동이 큰 경우 `Search_General_News`이나 `Get_Race_Timeline`으로 사유를 검색하세요.
+    1. 순위표에 'Retired', 'Did not start', 'DSQ'가 있거나 순위 변동이 큰 경우 `Search_Web_Realtime`이나 `Get_Race_Timeline`으로 사유를 검색하세요.
     2. 검색 결과가 없거나 실패하면 위의 HALLUCINATION 금지 규칙을 따르십시오.
     3. 단순히 "몇 위했다"가 아니라 "왜 그 순위를 기록했는지"를 스토리텔링하되, 확인된 팩트만 사용하십시오.
 
@@ -269,7 +285,7 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 줄글을 길게 쓰지 말고 2~3개의 간결한 문단으로 나눌 것)
 
         ### 🚨 특이사항
-        (리타이어, 페널티 등 특이사항이 있다면 'Search_General_News' 도구로 검색하여 팩트 기반으로 짧게 언급.
+        (리타이어, 페널티 등 특이사항이 있다면 'Search_Web_Realtime' 도구로 검색하여 팩트 기반으로 짧게 언급.
         검색 실패 시 "구체적인 원인은 확인되지 않았습니다" 로만 서술. 없으면 "특이사항 없음")
         """
 
@@ -294,7 +310,7 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         (우승자의 퍼포먼스나 눈에 띄는 순위 상승을 이룬 선수를 3개 이하의 글머리 기호(Bullet points)로 간결하게 요약)
 
         ### 🚨 결정적 순간 (사건/사고)
-        (Retired 또는 Did not start 선수가 있다면 'Search_General_News' 도구로 팩트체크 후 1~2줄로 서술.
+        (Retired 또는 Did not start 선수가 있다면 'Search_Web_Realtime' 도구로 팩트체크 후 1~2줄로 서술.
         검색 실패 시 "구체적인 원인은 확인되지 않았습니다. 데이터 기준으로는 ~가 Retired/Did not start로 기록됨" 으로만 서술.
         특이사항이 없다면 생략)
 
