@@ -566,7 +566,7 @@ with tab2:
                         [TASK: Full Strategy Report]
                         Target: {selected_year} {selected_gp} - Driver: {strategy_driver}
                         
-                        당신은 F1 수석 전략 분석가입니다. 제공된 모든 도구(`Race_Strategy_Auditor`, `Tire_Performance_Analyzer`, `F1_Database_Search`)를 적극 활용하여, 해당 드라이버의 전체 레이스 전략(피트스탑, 타이어, 트래픽 등)을 종합 평가하십시오.
+                        당신은 F1 수석 전략 분석가입니다. 제공된 모든 도구(`Race_Strategy_Auditor`, `Tire_Performance_Analyzer`)를 적극 활용하여, 해당 드라이버의 전체 레이스 전략(피트스탑, 타이어, 트래픽 등)을 종합 평가하십시오.
                         🚨[절대 규칙] '데이터가 없습니다'라며 분석을 포기하는 것은 절대 허용되지 않습니다. 기필코 심층 분석 결과를 도출하십시오.
                         {JSON_RULE}
                         """

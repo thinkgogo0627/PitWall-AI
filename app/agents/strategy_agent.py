@@ -1,41 +1,32 @@
 import sys
 import os
 import asyncio
+import ast
+import json
+import re
 from dotenv import load_dotenv
 from llama_index.core import Settings
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import ReActAgent
-from llama_index.core.workflow import Context
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from google.genai.errors import ServerError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, retry_if_exception_type
+from google.genai.errors import ServerError, ClientError
 
 # 경로 설정
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 # --- [1. 도구 Import (New Analytics Engine)] ---
-from app.tools.hard_data import analyze_race_data  # Text2SQL (기본 기록 조회용)
 from data_pipeline.analytics import (
     audit_race_strategy,      # 핵심: 트래픽 + 스틴트 + 피트 타이밍 통합 분석
     calculate_tire_degradation # 핵심: 타이어 마모도 분석
 )
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, retry_if_exception_type
-from google.genai.errors import ServerError, ClientError
-
 load_dotenv()
-Settings.llm = GoogleGenAI(model="models/gemini-2.0-flash", api_key=os.getenv("GOOGLE_API_KEY"))
+Settings.llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=os.getenv("GOOGLE_API_KEY"))
 
 # --- [2. 도구 래핑 (Tool Wrapping)] ---
 
-# (1) 기본 기록 조회
-sql_tool = FunctionTool.from_defaults(
-    fn=analyze_race_data,
-    name="F1_Database_Search",
-    description="경기 순위, 포인트, 리타이어 여부 등 '단순 기록' 조회용. 전략 분석용 아님."
-)
-
-# (2) 전략 정밀 감사 (핵심 도구 업데이트)
+# (1) 전략 정밀 감사 (핵심 도구 업데이트)
 def wrapper_audit_strategy(year: int, circuit: str, driver_identifier: str) -> str:
     """드라이버의 스틴트별 페이스, 트래픽, 피트 타이밍, 스틴트 길이 평가를 수행합니다."""
     try:
@@ -52,7 +43,7 @@ strategy_tool = FunctionTool.from_defaults(
     description="[핵심 도구] 특정 드라이버의 트래픽(Traffic), 페이스(Clean Pace), 피트 타이밍, 그리고 **스틴트 길이 평가(Type)**를 분석합니다."
 )
 
-# (3) 타이어 마모도 분석
+# (2) 타이어 마모도 분석
 def wrapper_tire_deg(year: int, circuit: str) -> str:
     try:
         df = calculate_tire_degradation(year, circuit)
@@ -155,6 +146,12 @@ def build_strategy_agent():
     
     
     [★ CRITICAL OUTPUT RULE: DYNAMIC ROWS ★]
+    0. You MUST return a JSON array of flat row objects.
+       - Every row MUST have exactly these keys: "Category", "Metrics", "Insight", "Verdict".
+       - Do NOT use nested objects, nested arrays, or alternative keys such as driver/year/stint_analysis.
+       - Values MUST be written in Korean.
+       - Example row shape: {{"Category": "스틴트 1 분석", "Metrics": "MEDIUM 12랩", "Insight": "초반 미디엄 스틴트를 안정적으로 관리함.", "Verdict": "A"}}
+
     1. **Tire/Stint Analysis:** You MUST output **ONE ROW PER STINT**. 
        - e.g., `{{"Category": "Stint 1 (Soft)", ...}}`, `{{"Category": "Stint 2 (Hard)", ...}}`
        - DO NOT combine all stints into a single row.
@@ -208,7 +205,7 @@ def build_strategy_agent():
     
     return ReActAgent(
             llm=Settings.llm,
-            tools=[sql_tool, strategy_tool, tire_tool],
+            tools=[strategy_tool, tire_tool],
             system_prompt=system_prompt,
             verbose=True
         )
@@ -219,6 +216,173 @@ def is_rate_limit_error(exception):
         # 429 코드가 에러 메시지나 코드에 포함되어 있는지 확인
         return exception.code == 429 or "429" in str(exception)
     return False
+
+
+def _stringify_cell(value) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def normalize_strategy_response(response) -> str:
+    """Streamlit strategy table schema로 agent JSON 응답을 정규화한다."""
+    text = str(response)
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        return text
+
+    json_text = match.group(0)
+    try:
+        data = json.loads(json_text, strict=False)
+    except json.JSONDecodeError:
+        data = ast.literal_eval(json_text)
+
+    if not isinstance(data, list):
+        return text
+
+    required = {"Category", "Metrics", "Insight", "Verdict"}
+    if all(isinstance(row, dict) and required.issubset(row.keys()) for row in data):
+        return json.dumps(
+            [
+                {
+                    "Category": row["Category"],
+                    "Metrics": row["Metrics"],
+                    "Insight": row["Insight"],
+                    "Verdict": row["Verdict"],
+                }
+                for row in data
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    normalized = []
+    for idx, row in enumerate(data, start=1):
+        if not isinstance(row, dict):
+            normalized.append({
+                "Category": f"분석 {idx}",
+                "Metrics": "-",
+                "Insight": _stringify_cell(row),
+                "Verdict": "-",
+            })
+            continue
+
+        analysis = row.get("analysis")
+        if isinstance(analysis, dict):
+            if analysis.get("overall_strategy"):
+                normalized.append({
+                    "Category": "전체 전략 요약",
+                    "Metrics": _stringify_cell(row.get("driver", "-")),
+                    "Insight": _stringify_cell(analysis["overall_strategy"]),
+                    "Verdict": "-",
+                })
+
+            pace_eval = analysis.get("pace_evaluation")
+            if isinstance(pace_eval, dict):
+                for stint_name, stint in pace_eval.items():
+                    if not isinstance(stint, dict):
+                        continue
+                    normalized.append({
+                        "Category": stint_name.replace("_", " ").title() + " 분석",
+                        "Metrics": f"{stint.get('tire', '-')} / {stint.get('laps', '-')}랩 / Clean Pace {stint.get('clean_pace', '-')}",
+                        "Insight": _stringify_cell(stint.get("comment", stint)),
+                        "Verdict": "-",
+                    })
+
+            if analysis.get("traffic_management"):
+                normalized.append({
+                    "Category": "트래픽 분석",
+                    "Metrics": "Traffic 0%" if "0%" in str(analysis["traffic_management"]) else "-",
+                    "Insight": _stringify_cell(analysis["traffic_management"]),
+                    "Verdict": "-",
+                })
+
+            tire_alignment = analysis.get("tire_performance_alignment")
+            if isinstance(tire_alignment, dict):
+                for tire_name, tire_text in tire_alignment.items():
+                    normalized.append({
+                        "Category": tire_name.replace("_", " ").title(),
+                        "Metrics": "-",
+                        "Insight": _stringify_cell(tire_text),
+                        "Verdict": "-",
+                    })
+
+            if analysis.get("conclusion"):
+                normalized.append({
+                    "Category": "종합 평가",
+                    "Metrics": _stringify_cell(row.get("report_type", "-")),
+                    "Insight": _stringify_cell(analysis["conclusion"]),
+                    "Verdict": "-",
+            })
+            continue
+
+        stint_analysis = row.get("stint_analysis")
+        if isinstance(stint_analysis, list):
+            if row.get("overall_strategy_type"):
+                normalized.append({
+                    "Category": "전체 전략 요약",
+                    "Metrics": _stringify_cell(row.get("overall_strategy_type")),
+                    "Insight": f"{row.get('driver', '-')} / {row.get('year', '-')} {row.get('circuit', '-')}",
+                    "Verdict": "-",
+                })
+
+            for stint in stint_analysis:
+                if not isinstance(stint, dict):
+                    continue
+                stint_no = stint.get("stint_number", "-")
+                insight_parts = [
+                    _stringify_cell(stint.get("tire_life_evaluation")),
+                    _stringify_cell(stint.get("pace_evaluation")),
+                ]
+                normalized.append({
+                    "Category": f"스틴트 {stint_no} 분석",
+                    "Metrics": f"{stint.get('tire_compound', '-')} / {stint.get('laps_run', '-')}랩 / Clean Pace {stint.get('clean_pace', '-')}",
+                    "Insight": " ".join(part for part in insight_parts if part and part != "-"),
+                    "Verdict": "-",
+                })
+
+            tire_summary = row.get("tire_performance_summary")
+            if isinstance(tire_summary, dict):
+                for compound_name, compound_data in tire_summary.items():
+                    normalized.append({
+                        "Category": compound_name.replace("_", " ").title(),
+                        "Metrics": _stringify_cell(compound_data),
+                        "Insight": "타이어 수명 및 마모 통계",
+                        "Verdict": "-",
+                    })
+
+            strategic_eval = row.get("strategic_evaluation")
+            if isinstance(strategic_eval, dict):
+                label_map = {
+                    "traffic_management": "트래픽 분석",
+                    "tire_management": "타이어 관리",
+                    "pace_progression": "페이스 추이",
+                    "pit_timing": "피트스톱 전략",
+                    "overall_assessment": "종합 평가",
+                }
+                for key, value in strategic_eval.items():
+                    normalized.append({
+                        "Category": label_map.get(key, key.replace("_", " ").title()),
+                        "Metrics": "Traffic 0%" if key == "traffic_management" and "0%" in str(value) else "-",
+                        "Insight": _stringify_cell(value),
+                        "Verdict": "-",
+                    })
+            continue
+
+        category = row.get("Category") or row.get("category") or row.get("section") or row.get("title") or f"분석 {idx}"
+        metrics = row.get("Metrics") or row.get("metrics") or "-"
+        insight = row.get("Insight") or row.get("evaluation") or row.get("content") or row.get("summary") or row
+        verdict = row.get("Verdict") or row.get("verdict") or "-"
+        normalized.append({
+            "Category": _stringify_cell(category),
+            "Metrics": _stringify_cell(metrics),
+            "Insight": _stringify_cell(insight),
+            "Verdict": _stringify_cell(verdict),
+        })
+
+    return json.dumps(normalized, ensure_ascii=False, indent=2)
 
 
 # --- [4. 실행 함수 (외부 Import용)] --- 
@@ -244,7 +408,14 @@ async def run_strategy_agent(user_msg: str):
     print("📦 [STRATEGY AGENT RAW RESPONSE END]")
     print("="*60 + "\n")
     
-    return response
+    normalized_response = normalize_strategy_response(response)
+    print("\n" + "="*60)
+    print("✅ [STRATEGY AGENT NORMALIZED RESPONSE START]")
+    print(normalized_response)
+    print("✅ [STRATEGY AGENT NORMALIZED RESPONSE END]")
+    print("="*60 + "\n")
+    
+    return normalized_response
 
 if __name__ == "__main__":
     async def test():

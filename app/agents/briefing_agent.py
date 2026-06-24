@@ -16,7 +16,6 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import ReActAgent
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from google.genai.errors import ServerError
-from duckduckgo_search import DDGS
 
 warnings.filterwarnings("ignore", module="pydantic")
 warnings.filterwarnings("ignore", message=".*model_computed_fields.*")
@@ -28,7 +27,12 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # --- [도구 Import] ---
 from app.tools.deterministic_data import get_race_standings
-from app.tools.soft_data import search_f1_context
+from app.tools.soft_data import (
+    get_driver_interview,
+    get_event_timeline,
+    search_f1_context,
+    search_technical_analysis,
+)
 from app.regulation_tool import regulation_tool
 
 # --- [★ 드라이버 약어 → 풀네임 변환 테이블] ---
@@ -42,6 +46,7 @@ DRIVER_NAME_MAP = {
     "HAM": "루이스 해밀턴",
     # Red Bull
     "VER": "막스 베르스타펜",
+    "TSU": "유키 츠노다",
     "HAD": "아이작 하자르",
     # McLaren
     "NOR": "랜도 노리스",
@@ -58,15 +63,19 @@ DRIVER_NAME_MAP = {
     # Racing Bulls
     "LAW": "리암 로슨",
     "LIN": "아비드 린드블라드",
+    "RIC": "다니엘 리카르도",
     # Haas
     "BEA": "올리버 베어만",
     "OCO": "에스테반 오콘",
+    "MAG": "케빈 마그누센",
     # Audi
     "HUL": "니코 휠켄베르크",
     "BOR": "가브리엘 보르톨레토",
+    "ZHO": "저우관위",
     # Cadillac
     "PER": "세르히오 페레스",
     "BOT": "발테리 보타스",
+    "SAR": "로건 사전트",
 }
 
 def translate_driver_abbr(abbr: str) -> str:
@@ -130,26 +139,16 @@ tool_timeline = FunctionTool.from_defaults(
 )
 
 tool_general_news = FunctionTool.from_defaults(
-    fn=search_f1_news_web,
+    fn=search_f1_context,
     name="Search_General_News",
     description="위의 특화 도구들로 찾을 수 없는 일반적인 가십이나 이슈, 혹은 광범위한 정보를 찾을 때 보조적으로 사용하세요."
 )
 
 def search_web_realtime(query: str) -> str:
-    try:
-        with DDGS(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}, timeout=10) as ddgs:
-            results = list(ddgs.text(query, max_results=3))
-
-        if not results:
-            return "[WEB_SEARCH_NO_RESULT] 검색 결과를 찾을 수 없습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
-
-        summary = ""
-        for res in results:
-            summary += f"- {res['title']}: {res['body']}\n"
-        return summary
-
-    except Exception as e:
-        return "[WEB_SEARCH_FAILED] 웹 검색 도구에 오류가 발생했습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
+    result = search_f1_context(query, limit=4)
+    if result.startswith(("[RAG_UNAVAILABLE]", "[RAG_NO_RESULT]", "[RAG_ERROR]")):
+        return "[WEB_SEARCH_NO_RESULT] 검색 결과를 찾을 수 없습니다. 해당 사건의 구체적인 원인은 확인되지 않았습니다."
+    return result
 
 tool_web_search = FunctionTool.from_defaults(
     fn=search_web_realtime,
@@ -160,11 +159,19 @@ tool_web_search = FunctionTool.from_defaults(
 
 # --- [3. 에이전트 조립] ---
 
-def build_briefing_agent():
+def build_briefing_agent(include_tools: bool = True):
     """
     경기 후 브리핑 및 요약 전문 에이전트
     """
-    tools = [race_result_tool, regulation_tool]
+    tools = [
+        race_result_tool,
+        tool_interview,
+        tool_tech,
+        tool_timeline,
+        tool_general_news,
+        tool_web_search,
+        regulation_tool,
+    ] if include_tools else []
     
     system_prompt = """
     당신은 F1 전문 저널리스트이자 수석 퍼포먼스 분석가입니다.
@@ -238,6 +245,13 @@ async def run_briefing_agent(user_msg: str):
     return await agent.run(user_msg=user_msg, ctx=ctx)
 
 
+async def run_briefing_agent_without_tools(user_msg: str):
+    agent = build_briefing_agent(include_tools=False)
+    from llama_index.core.workflow import Context
+    ctx = Context(agent)
+    return await agent.run(user_msg=user_msg, ctx=ctx)
+
+
 # Streamlit 연동 함수
 async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -> str:
     """
@@ -285,8 +299,8 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         (왜 순위가 올랐/떨어졌는지 전략적 관점에서 분석. 줄글을 길게 쓰지 말고 2~3개의 간결한 문단으로 나눌 것)
 
         ### 🚨 특이사항
-        (리타이어, 페널티 등 특이사항이 있다면 'Search_Web_Realtime' 도구로 검색하여 팩트 기반으로 짧게 언급.
-        검색 실패 시 "구체적인 원인은 확인되지 않았습니다" 로만 서술. 없으면 "특이사항 없음")
+        (리타이어, 페널티 등 특이사항이 있다면 제공된 표의 Status만 근거로 짧게 언급.
+        외부 검색 도구를 호출하지 말고, 원인이 표에 없으면 "구체적인 원인은 확인되지 않았습니다" 로만 서술. 없으면 "특이사항 없음")
         """
 
     # 4. 전체 경기 요약 (Race Summary)
@@ -310,17 +324,18 @@ async def generate_quick_summary(year: int, gp: str, driver_focus: str = None) -
         (우승자의 퍼포먼스나 눈에 띄는 순위 상승을 이룬 선수를 3개 이하의 글머리 기호(Bullet points)로 간결하게 요약)
 
         ### 🚨 결정적 순간 (사건/사고)
-        (Retired 또는 Did not start 선수가 있다면 'Search_Web_Realtime' 도구로 팩트체크 후 1~2줄로 서술.
-        검색 실패 시 "구체적인 원인은 확인되지 않았습니다. 데이터 기준으로는 ~가 Retired/Did not start로 기록됨" 으로만 서술.
+        (Retired 또는 Did not start 선수가 있다면 제공된 표의 Status만 근거로 1~2줄로 서술.
+        외부 검색 도구를 호출하지 말고, 원인이 표에 없으면 "구체적인 원인은 확인되지 않았습니다. 데이터 기준으로는 ~가 Retired/Did not start로 기록됨" 으로만 서술.
         특이사항이 없다면 생략)
 
         🚨 절대 금지 사항:
         - 위 표에 없는 순위, 드라이버, 팀 정보를 절대 지어내지 마십시오.
         - 당신의 사전 학습 지식(Internal Knowledge)으로 순위나 사건을 추측하거나 보완하지 마십시오.
         - 표의 드라이버 이름과 Position 순서를 절대 바꾸지 마십시오.
+        - 이 Data Injection 요약 작업에서는 어떤 도구도 호출하지 마십시오.
         """
 
-    return await run_briefing_agent(user_msg)
+    return await run_briefing_agent_without_tools(user_msg)
 
 
 # --- [테스트 실행] ---
